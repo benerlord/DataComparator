@@ -1,0 +1,20 @@
+name: test
+sources:
+  left:
+    type: excel
+    path: ./data_{{param.month}}.xlsx
+  right:
+    type: gaussdb
+    connection: prod
+    query: SELECT * FROM sales
+match:
+  keys:
+    - left: id
+      right: id
+compare:
+  fields:
+    - left: amount
+      right: amount
+output:
+  dir: ./out
+  formats: [json]
