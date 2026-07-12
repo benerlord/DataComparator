@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>{{ result.task_name }} · 比对报告</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         max-width: 1200px; margin: 20px auto; padding: 0 20px; color: #333; }
+  h1 { border-bottom: 2px solid #4a90e2; padding-bottom: 8px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+           gap: 12px; margin: 20px 0; }
+  .card { border: 1px solid #ddd; border-radius: 6px; padding: 14px; background: #fafafa; }
+  .card .label { font-size: 12px; color: #777; text-transform: uppercase; }
+  .card .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
+  th { background: #f0f4f8; }
+  tr.value_mismatch { background: #fff9e6; }
+  tr.null_mismatch { background: #ffefd5; }
+  tr.type_error, tr.unit_error { background: #ffe4e4; }
+  details { margin: 12px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>{{ result.task_name }}</h1>
+<p>左侧: <code>{{ result.left_name }}</code> · 右侧: <code>{{ result.right_name }}</code>
+   · 引擎: {{ result.engine_used }} · 耗时: {{ "%.2f"|format(result.duration_seconds) }}s</p>
+
+<div class="cards">
+  <div class="card"><div class="label">匹配率</div><div class="value">{{ "%.2f"|format(result.match_rate() * 100) }}%</div></div>
+  <div class="card"><div class="label">完全一致</div><div class="value">{{ "{:,}".format(result.identical_rows) }}</div></div>
+  <div class="card"><div class="label">字段差异</div><div class="value">{{ "{:,}".format(result.diff_rows) }}</div></div>
+  <div class="card"><div class="label">左侧独有</div><div class="value">{{ "{:,}".format(result.left_only) }}</div></div>
+  <div class="card"><div class="label">右侧独有</div><div class="value">{{ "{:,}".format(result.right_only) }}</div></div>
+  <div class="card"><div class="label">字段错误</div><div class="value">{{ result.errors|length }}</div></div>
+</div>
+
+{% if include_charts %}
+<details open><summary>图表</summary>
+<canvas id="chart-data" width="600" height="240"></canvas>
+</details>
+{% endif %}
+
+<h2>字段差异明细 ({{ result.diff_details|length }} 条)</h2>
+{{ diff_html|safe }}
+
+<details>
+<summary>左侧独有 ({{ result.left_only_rows|length }} 行)</summary>
+{{ left_only_html|safe }}
+</details>
+
+<details>
+<summary>右侧独有 ({{ result.right_only_rows|length }} 行)</summary>
+{{ right_only_html|safe }}
+</details>
+</body></html>
