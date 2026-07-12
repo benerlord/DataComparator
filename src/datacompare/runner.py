@@ -15,6 +15,7 @@ from datacompare.reporters.json import JSONReporter
 from datacompare.reporters.console import ConsoleReporter
 from datacompare.reporters.html import HTMLReporter
 from datacompare.reporters.excel import ExcelReporter
+from datacompare.reporters.csv import CSVReporter
 
 
 def _build_source(cfg, connections: dict[str, AnyConnection], side_name: str) -> DataSource:
@@ -39,6 +40,7 @@ REPORTER_MAP: dict[str, type] = {
     "console": ConsoleReporter,
     "html": HTMLReporter,
     "excel": ExcelReporter,
+    "csv": CSVReporter,
 }
 
 
