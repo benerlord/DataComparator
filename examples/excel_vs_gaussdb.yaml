@@ -1,0 +1,57 @@
+name: 每日销售数据核对
+description: 核对业务侧 Excel 与 DWS 层订单表
+
+sources:
+  left:
+    type: excel
+    path: ./data/sales_{{param.month}}.xlsx
+    sheets:
+      - name: Sheet1
+    header_row: 1
+    force_string: true
+  right:
+    type: gaussdb
+    connection: prod_dws
+    query: |
+      SELECT order_id, sku_code, region, amount, storage, order_time
+      FROM dws.sales
+      WHERE month = '{{param.month}}'
+
+match:
+  keys:
+    - left: 订单号
+      right: order_id
+    - left: SKU编码
+      right: sku_code
+
+compare:
+  defaults:
+    mode: exact
+    ignore_whitespace: false
+    ignore_case: false
+    null_equivalents: ["", "null", "NULL", "NaN", "nan"]
+  fields:
+    - left: 金额
+      right: amount
+      mode: numeric
+      decimal_places: 2
+    - left: 存储容量
+      right: storage
+      mode: numeric
+      parse_unit: true
+      unit_category: storage
+      normalize_to: GB
+    - left: 区域
+      right: region
+      mode: string
+      ignore_whitespace: true
+      ignore_case: true
+
+output:
+  dir: ./reports/{{param.month}}
+  formats: [html, excel, csv, json, console]
+
+runtime:
+  engine: auto
+  memory_threshold_rows: 500000
+  log_level: INFO

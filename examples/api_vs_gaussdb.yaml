@@ -1,0 +1,46 @@
+name: API 与数据库核对
+description: 核对 API 返回的订单与 DB 中订单表
+
+sources:
+  left:
+    type: api
+    connection: order_service
+    method: GET
+    url: /v1/orders
+    params:
+      month: "{{param.month}}"
+      status: paid
+    pagination:
+      type: page
+      page_param: pageNum
+      size_param: pageSize
+      size: 200
+      total_path: $.data.total
+    data_path: $.data.list[*]
+    timeout: 30
+    retry:
+      max_attempts: 3
+      backoff: 1.5
+  right:
+    type: gaussdb
+    connection: prod_dws
+    query: SELECT order_id, amount FROM dws.orders WHERE month = '{{param.month}}'
+
+match:
+  keys:
+    - left: id
+      right: order_id
+
+compare:
+  fields:
+    - left: amount
+      right: amount
+      mode: numeric
+      decimal_places: 2
+
+output:
+  dir: ./reports/{{param.month}}
+  formats: [html, json]
+
+runtime:
+  engine: auto
