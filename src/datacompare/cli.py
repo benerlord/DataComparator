@@ -1,7 +1,11 @@
 """Typer CLI entry point."""
 from __future__ import annotations
+from pathlib import Path
 import typer
 from datacompare import __version__
+from datacompare.config.loader import load_task, load_connections
+from datacompare.config.errors import ConfigError
+from datacompare.runner import execute
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
@@ -29,8 +33,33 @@ def run(
     fail_on_diff: bool = typer.Option(False, "--fail-on-diff"),
 ) -> None:
     """Execute a comparison task."""
-    typer.echo("run: not implemented yet")
-    raise typer.Exit(3)
+    params_dict = {}
+    for kv in param:
+        if "=" not in kv:
+            typer.echo(f"invalid --param: {kv}", err=True)
+            raise typer.Exit(1)
+        k, v = kv.split("=", 1)
+        params_dict[k] = v
+    try:
+        task = load_task(Path(task_file).expanduser(), params_dict)
+        conn_path = Path(connections).expanduser()
+        conns = load_connections(conn_path) if conn_path.exists() else {}
+    except ConfigError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1)
+    if dry_run:
+        typer.echo("✓ configuration is valid (dry-run)")
+        raise typer.Exit(0)
+    try:
+        result = execute(task, conns, output_dir_override=output_dir,
+                         formats_override=fmt or None, engine_override=engine)
+    except ConfigError as e:
+        typer.echo(f"❌ {e}", err=True); raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"❌ error: {e}", err=True); raise typer.Exit(2)
+    if fail_on_diff and (result.diff_rows > 0 or result.left_only > 0 or result.right_only > 0):
+        raise typer.Exit(10)
+    raise typer.Exit(0)
 
 
 @app.command()
