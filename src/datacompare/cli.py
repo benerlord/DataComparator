@@ -68,8 +68,21 @@ def validate(
     connections: str = typer.Option("~/.datacompare/connections.yaml", "--connections", "-c"),
 ) -> None:
     """Validate a task config (no execution)."""
-    typer.echo("validate: not implemented yet")
-    raise typer.Exit(3)
+    from datacompare.validator import validate_task
+    try:
+        task = load_task(Path(task_file).expanduser())
+        conn_path = Path(connections).expanduser()
+        conns = load_connections(conn_path) if conn_path.exists() else {}
+    except ConfigError as e:
+        typer.echo(f"❌ {e}", err=True); raise typer.Exit(1)
+
+    issues = validate_task(task, conns)
+    if issues:
+        typer.echo("❌ validation failed:")
+        for issue in issues:
+            typer.echo(f"  · {issue}")
+        raise typer.Exit(1)
+    typer.echo("✓ configuration is valid")
 
 
 @app.command()
