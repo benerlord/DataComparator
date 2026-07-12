@@ -1,0 +1,32 @@
+name: Excel 与 API 核对
+
+sources:
+  left:
+    type: excel
+    path: ./expected.xlsx
+  right:
+    type: api
+    connection: order_service
+    url: /v1/orders
+    pagination:
+      type: offset
+      offset_param: offset
+      size_param: limit
+      size: 200
+    data_path: $.data.list[*]
+
+match:
+  keys:
+    - left: 订单号
+      right: order_id
+
+compare:
+  fields:
+    - left: 金额
+      right: amount
+      mode: numeric
+      decimal_places: 2
+
+output:
+  dir: ./reports
+  formats: [html, json]

@@ -74,11 +74,17 @@ def validate(
 
 @app.command()
 def init(
-    template: str = typer.Argument(..., help="Template name"),
+    template: str = typer.Argument(..., help="excel-vs-gaussdb | api-vs-gaussdb | excel-vs-api"),
 ) -> None:
     """Emit a config template to stdout."""
-    typer.echo("init: not implemented yet")
-    raise typer.Exit(3)
+    from importlib import resources
+    filename = template.replace("-", "_") + ".yaml"
+    try:
+        content = resources.files("datacompare.templates").joinpath(filename).read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError):
+        typer.echo(f"unknown template: {template}", err=True)
+        raise typer.Exit(1)
+    typer.echo(content)
 
 
 if __name__ == "__main__":
