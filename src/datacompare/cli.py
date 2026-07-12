@@ -33,6 +33,9 @@ def run(
     fail_on_diff: bool = typer.Option(False, "--fail-on-diff"),
 ) -> None:
     """Execute a comparison task."""
+    from datacompare.utils.logging import configure_logging
+    configure_logging(level=log_level, log_file=Path(log_file).expanduser() if log_file else None)
+
     params_dict = {}
     for kv in param:
         if "=" not in kv:
