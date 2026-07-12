@@ -9,7 +9,8 @@ from datacompare.config.errors import ConfigError
 from datacompare.sources.base import DataSource
 from datacompare.sources.excel import ExcelSource
 from datacompare.sources.gaussdb import GaussDBSource
-from datacompare.engine.memory import InMemoryEngine
+from datacompare.engine.memory import InMemoryEngine  # noqa: F401 – kept for backwards compat
+from datacompare.engine.router import select_engine
 from datacompare.engine.result import CompareResult
 from datacompare.reporters.json import JSONReporter
 from datacompare.reporters.console import ConsoleReporter
@@ -78,8 +79,7 @@ def execute(
     right = _build_source(task.sources["right"], connections, side_name="right")
 
     try:
-        # Milestone 4 wires only InMemoryEngine; router comes in Task 26.
-        engine = InMemoryEngine()
+        engine = select_engine(left, right, task)
         result = engine.compare(left, right, task)
     finally:
         left.close()
