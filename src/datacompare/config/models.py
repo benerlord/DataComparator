@@ -147,15 +147,40 @@ class TaskConfig(BaseModel):
 
 
 # Connection (credential) models
-class GaussDBConnection(BaseModel):
+class GaussDBAConnection(BaseModel):
+    """GaussDB A / DWS / openGauss / GaussDB 100 PG-compat mode — via psycopg2."""
     model_config = ConfigDict(extra="forbid")
     type: Literal["gaussdb"] = "gaussdb"
+    variant: Literal["a"] = "a"
     host: str
     port: int = 5432
     database: str
     user: str
     password: str
     ssl: Literal["disable", "require", "verify-ca"] = "require"
+
+
+class GaussDBTConnection(BaseModel):
+    """GaussDB T (OLTP) — via JDBC + JayDeBeApi."""
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["gaussdb"] = "gaussdb"
+    variant: Literal["t"]
+    jdbc_url: str = Field(min_length=1)
+    jdbc_jar_path: str = Field(min_length=1)
+    jdbc_driver_class: str = Field(min_length=1)
+    user: str
+    password: str
+    jdbc_properties: dict[str, str] = Field(default_factory=dict)
+
+
+# Union type: usable in isinstance checks (Python 3.10+) and type annotations.
+GaussDBConnection = GaussDBAConnection | GaussDBTConnection
+
+# For Pydantic validation dispatch: left-to-right union matching.
+# GaussDBAConnection (extra="forbid") is tried first; if T-specific fields
+# (e.g. jdbc_url) are present it fails validation and Pydantic falls through
+# to GaussDBTConnection. When "variant" is absent the default "a" applies.
+_GaussDBConnectionValidated = GaussDBAConnection | GaussDBTConnection
 
 
 class BearerAuth(BaseModel):
@@ -185,4 +210,4 @@ class APIConnection(BaseModel):
     auth: AnyAPIAuth = Field(default_factory=NoAuth)
 
 
-AnyConnection = GaussDBConnection | APIConnection
+AnyConnection = _GaussDBConnectionValidated | APIConnection

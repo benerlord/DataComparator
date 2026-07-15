@@ -11,7 +11,7 @@ except Exception:
 
 from testcontainers.postgres import PostgresContainer
 from datacompare.sources.gaussdb import GaussDBSource
-from datacompare.config.models import GaussDBSourceConfig, GaussDBConnection
+from datacompare.config.models import GaussDBSourceConfig, GaussDBAConnection
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +40,7 @@ def pg_container():
 
 @pytest.fixture
 def creds(pg_container):
-    return GaussDBConnection(
+    return GaussDBAConnection(
         type="gaussdb",
         host=pg_container.get_container_host_ip(),
         port=int(pg_container.get_exposed_port(5432)),
