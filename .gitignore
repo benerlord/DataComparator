@@ -12,3 +12,4 @@ build/
 uv.lock
 reports/
 .DS_Store
+tests/fixtures/jars/
