@@ -1,0 +1,59 @@
+name: Excel 与 GaussDB T 核对
+description: 核对业务侧 Excel 与 GaussDB T (OLTP) 库表
+
+sources:
+  left:
+    type: excel
+    path: ./data/records_{{param.date}}.xlsx
+    sheets:
+      - name: Sheet1
+    header_row: 1
+    force_string: true
+
+  right:
+    type: gaussdb
+    connection: prod_oltp_t     # 引用 connections.yaml
+    query: |
+      SELECT id, name, amount, updated_at
+      FROM app.records
+      WHERE dt = '{{param.date}}'
+
+match:
+  keys:
+    - left: 编号
+      right: id
+
+compare:
+  defaults:
+    mode: exact
+    null_equivalents: ["", "null", "NULL", "NaN", "nan"]
+  fields:
+    - left: 名称
+      right: name
+      mode: string
+      ignore_whitespace: true
+    - left: 金额
+      right: amount
+      mode: numeric
+      decimal_places: 2
+
+output:
+  dir: ./reports/{{param.date}}
+  formats: [html, json, console]
+
+runtime:
+  engine: auto
+  memory_threshold_rows: 500000
+  log_level: INFO
+
+# --- connections.yaml 示例（放在 ~/.datacompare/connections.yaml） ---
+# prod_oltp_t:
+#   type: gaussdb
+#   variant: t                                          # 关键：区分 A / T
+#   jdbc_url: "jdbc:zenith:@//10.0.0.20:1611/oltp_svc"  # 从 Data Studio 连接配置复制
+#   jdbc_jar_path: /opt/gaussdb/gsjdbc4.jar             # 从华为支持网站下载
+#   jdbc_driver_class: com.huawei.gauss.jdbc.ZenithDriver
+#   user: analytics_ro
+#   password: ${GAUSS_T_PWD}
+#   jdbc_properties:                                     # 可选
+#     loginTimeout: "30"

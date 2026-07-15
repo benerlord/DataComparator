@@ -25,6 +25,15 @@ def test_init_excel_vs_api():
     assert "api" in result.stdout
 
 
+def test_init_excel_vs_gaussdb_t():
+    result = runner.invoke(app, ["init", "excel-vs-gaussdb-t"])
+    assert result.exit_code == 0
+    assert "variant: t" in result.stdout
+    assert "jdbc_url" in result.stdout
+    assert "jdbc_jar_path" in result.stdout
+    assert "jdbc_driver_class" in result.stdout
+
+
 def test_init_unknown_template():
     result = runner.invoke(app, ["init", "bogus"])
     assert result.exit_code != 0
