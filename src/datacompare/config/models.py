@@ -1,7 +1,8 @@
 """Pydantic v2 models for task and connection configuration."""
 from __future__ import annotations
+import re
 from typing import Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 class SheetSelector(BaseModel):
@@ -68,6 +69,24 @@ class KeyMapping(BaseModel):
     model_config = ConfigDict(extra="forbid")
     left: str
     right: str
+    left_regex: str | None = None
+    right_regex: str | None = None
+
+    @field_validator("left_regex", "right_regex")
+    @classmethod
+    def _validate_regex(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        try:
+            pattern = re.compile(v)
+        except re.error as e:
+            raise ValueError(f"invalid regex {v!r}: {e}")
+        if pattern.groups > 1:
+            raise ValueError(
+                f"regex {v!r} has {pattern.groups} capture groups; "
+                "must have 0 or 1. Use non-capturing (?:...) for grouping without capture."
+            )
+        return v
 
 
 class MatchConfig(BaseModel):

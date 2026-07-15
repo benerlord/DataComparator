@@ -48,3 +48,43 @@ def test_api_source_requires_url():
     )
     assert src.method == "GET"
     assert src.timeout == 30
+
+
+def test_key_mapping_defaults_regex_to_none():
+    k = KeyMapping(left="a", right="b")
+    assert k.left_regex is None
+    assert k.right_regex is None
+
+
+def test_key_mapping_accepts_valid_regex():
+    k = KeyMapping(left="a", right="b", left_regex=r"ORD-\d+")
+    assert k.left_regex == r"ORD-\d+"
+
+
+def test_key_mapping_accepts_one_capture_group():
+    k = KeyMapping(left="a", right="b", left_regex=r"ORD-0*(\d+)")
+    assert k.left_regex == r"ORD-0*(\d+)"
+
+
+def test_key_mapping_rejects_invalid_regex_syntax():
+    with pytest.raises(ValidationError) as exc:
+        KeyMapping(left="a", right="b", left_regex=r"ORD-[")
+    assert "invalid regex" in str(exc.value)
+
+
+def test_key_mapping_rejects_two_capture_groups():
+    with pytest.raises(ValidationError) as exc:
+        KeyMapping(left="a", right="b", right_regex=r"(\d+)-(\w+)")
+    msg = str(exc.value)
+    assert "capture groups" in msg
+    assert "(?:...)" in msg
+
+
+def test_key_mapping_allows_noncapturing_groups():
+    k = KeyMapping(left="a", right="b", left_regex=r"(?:ORD|CUS)-(\d+)")
+    assert k.left_regex == r"(?:ORD|CUS)-(\d+)"
+
+
+def test_key_mapping_explicit_null_regex():
+    k = KeyMapping(left="a", right="b", left_regex=None, right_regex=None)
+    assert k.left_regex is None and k.right_regex is None
