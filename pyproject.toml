@@ -29,6 +29,10 @@ dependencies = [
 datacompare = "datacompare.cli:app"
 
 [project.optional-dependencies]
+gaussdb-t = [
+    "JayDeBeApi>=1.2.3",
+    "JPype1>=1.5",
+]
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.12",
@@ -38,6 +42,12 @@ dev = [
     "syrupy>=4.6",
     "ruff>=0.4",
     "mypy>=1.10",
+    # PyYAML: used by integration tests to construct fixture YAML files.
+    # (Production code uses ruamel.yaml.)
+    "PyYAML>=6.0",
+    # T-variant deps: included in dev so devs can run JDBC integration tests
+    "JayDeBeApi>=1.2.3",
+    "JPype1>=1.5",
 ]
 
 [build-system]
