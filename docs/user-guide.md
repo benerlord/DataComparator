@@ -3,7 +3,8 @@
 ## Sources
 
 - **Excel** (`.xlsx`, `.xls`): multi-sheet selection, configurable header row, force-string reading
-- **GaussDB**: PostgreSQL-protocol compatible; user provides full SELECT query
+- **GaussDB A** (DWS / openGauss / GaussDB 100 PG-compat mode): PostgreSQL-protocol compatible via psycopg2; user provides full SELECT query. Default when `variant` is omitted.
+- **GaussDB T** (OLTP, `variant: t`): JDBC via JayDeBeApi + gsjdbc4.jar. Requires `pip install 'datacompare[gaussdb-t]'` and JRE 8+. See README for connection example.
 - **HTTP API**: three auth strategies (none / bearer / cookie); three pagination modes (page / offset / cursor); JSONPath extraction
 
 ## Configuration

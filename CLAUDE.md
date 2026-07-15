@@ -65,6 +65,8 @@ CLI (Typer)  →  Config (Pydantic + YAML)  →  DataSource 抽象
 - **GaussDB 只允许 SELECT**：`gaussdb.py` 里的正则白名单在初始化时校验。这是安全边界，别绕过。
 - **FieldRule 覆盖语义**：可覆盖属性用 `None` 表示"继承 `CompareDefaults`"，非 `None` 表示"显式覆盖"。别把默认值设成 `False` —— 那样区分不出"未指定"和"显式关闭"。
 - **主键在单侧重复 = 配置错误**，任务失败并列出重复键（不是静默 join）。
+- **GaussDB 有两个变体 A/T**（v0.2 起）：A 用 psycopg2（PostgreSQL 协议），T 用 JDBC（JayDeBeApi + gsjdbc4.jar）。共用 `type: gaussdb`，用 `variant: a|t` 字段区分。默认 `a`，向后兼容。
+- **`GaussDBConnection` 是联合类型**（`GaussDBAConnection | GaussDBTConnection`），不能作为构造器调用。分派用 `isinstance` 检查具体子类。
 
 ## 开发流程约定
 
@@ -80,6 +82,7 @@ CLI (Typer)  →  Config (Pydantic + YAML)  →  DataSource 抽象
 2. **API `read()` 的分页请求** 目前没走 `tenacity` 重试；只有 `columns()`/`estimated_rows()` 的采样请求有重试。
 3. **单位大小写敏感度** 目前硬编码为不敏感，无 `unit_case_sensitive` 配置项（YAGNI）。
 4. **`tests/fixtures/excel/*.xlsx`** 会被 pytest autouse fixture 每次重新生成，导致 `git status` 显示 1 字节差异。建议加入 `.gitignore`。
+5. **GaussDB T 集成测试通过 PG JDBC 代理验证**（`test_gaussdb_jdbc_via_postgres.py`）：目的是验证 JayDeBeApi 封装本身，不验证 GaussDB T 特定行为。真机 T 测试可通过环境变量方式激活（未落地）。
 
 ## 退出码语义（CLI 用户会依赖）
 

@@ -269,6 +269,16 @@ sources:
     query: SELECT ... FROM ... WHERE ...
 ```
 
+**GaussDB T**（`type: gaussdb, variant: t`）
+```yaml
+sources:
+  right:
+    type: gaussdb
+    connection: prod_oltp_t
+    query: SELECT ... FROM ... WHERE ...    # 与 A 变体相同的 SELECT
+```
+连接配置差异见前节。SQL 语法遵循 GaussDB T 方言（近 Oracle 风格）。
+
 **HTTP API**（`type: api`）
 ```yaml
 sources:
@@ -295,7 +305,7 @@ sources:
 ### connections.yaml 结构
 
 ```yaml
-# GaussDB
+# GaussDB A（psycopg2，PostgreSQL 协议）
 prod_dws:
   type: gaussdb
   host: 10.0.0.10
@@ -304,7 +314,40 @@ prod_dws:
   user: analytics_ro
   password: ${GAUSS_PROD_PWD}
   ssl: require
+```
 
+#### GaussDB T (OLTP) — 通过 JDBC 连接
+
+GaussDB T 走的不是 PostgreSQL 协议，需要 JDBC 驱动。使用前请：
+
+1. 安装可选依赖（含 JayDeBeApi + JPype1）：
+   ```bash
+   pip install 'datacompare[gaussdb-t]'
+   ```
+2. 确保机器上有 **JRE 8+**（`java -version` 能输出版本即可，无需 `java` 命令在 PATH，只要 JPype 能找到 JVM 库）
+3. 从**华为支持网站**下载 `gsjdbc4.jar`（License 限制我们不能重新分发）
+
+`connections.yaml` 中的 T 变体配置：
+```yaml
+prod_oltp_t:
+  type: gaussdb
+  variant: t                                       # 关键：区分 A / T
+  jdbc_url: "jdbc:zenith:@//10.0.0.20:1611/svc"    # 从 Data Studio 连接配置复制
+  jdbc_jar_path: /opt/gaussdb/gsjdbc4.jar
+  jdbc_driver_class: com.huawei.gauss.jdbc.ZenithDriver
+  user: analytics_ro
+  password: ${GAUSS_T_PWD}
+  jdbc_properties:                                 # 可选，透传给 JDBC driver
+    loginTimeout: "30"
+    fetchSize: "1000"
+```
+
+**注意事项**：
+- 首次比对 T 时会有 1-2 秒 JVM 冷启动开销（后续查询无此开销）
+- 常驻额外内存约 100-200MB（JVM baseline）
+- **只用 GaussDB A 的用户完全不受影响** —— JVM 只在实际访问 T 时才启动
+
+```yaml
 # API - 无认证
 public_svc:
   type: api
