@@ -1,7 +1,9 @@
 import pandas as pd
+import pytest
 from datacompare.config.models import (
     KeyMapping, FieldRule, CompareDefaults, CompareConfig, MatchConfig,
 )
+from datacompare.normalize.keys import KeyRegexMismatchError
 from datacompare.normalize.pipeline import normalize_side
 
 def _cfg(fields, defaults=None):
@@ -48,3 +50,41 @@ def test_string_case_and_whitespace():
     )]
     result = normalize_side(df, keys, _cfg(fields, defaults), side="left")
     assert result.iloc[0]["region"] == "north"
+
+
+def test_pipeline_applies_left_regex_before_join():
+    df = pd.DataFrame({"order_no": ["ORD-000123"], "amount": ["100"]})
+    keys = [KeyMapping(left="order_no", right="order_id",
+                       left_regex=r"ORD-0*(\d+)")]
+    fields = [FieldRule(left="amount", right="amount")]
+    result = normalize_side(df, keys, _cfg(fields), side="left")
+    assert list(result.columns) == ["order_id", "amount"]
+    assert result.iloc[0]["order_id"] == "123"
+
+
+def test_pipeline_applies_right_regex():
+    df = pd.DataFrame({"order_id": ["ORD-000456"], "amount": ["200"]})
+    keys = [KeyMapping(left="order_no", right="order_id",
+                       right_regex=r"ORD-0*(\d+)")]
+    fields = [FieldRule(left="amount", right="amount")]
+    result = normalize_side(df, keys, _cfg(fields), side="right")
+    assert result.iloc[0]["order_id"] == "456"
+
+
+def test_pipeline_raises_key_regex_mismatch_error():
+    df = pd.DataFrame({"order_no": ["CANCEL-999"], "amount": ["100"]})
+    keys = [KeyMapping(left="order_no", right="order_id",
+                       left_regex=r"ORD-\d+")]
+    fields = [FieldRule(left="amount", right="amount")]
+    with pytest.raises(KeyRegexMismatchError):
+        normalize_side(df, keys, _cfg(fields), side="left")
+
+
+def test_pipeline_backward_compatible_without_regex():
+    """Existing configs without left_regex/right_regex must behave identically."""
+    df = pd.DataFrame({"订单号": ["A1"], "金额": ["100.50"]})
+    keys = [KeyMapping(left="订单号", right="order_id")]
+    fields = [FieldRule(left="金额", right="amount", mode="numeric", decimal_places=2)]
+    result = normalize_side(df, keys, _cfg(fields), side="left")
+    assert result.iloc[0]["order_id"] == "A1"
+    assert result.iloc[0]["amount"] == 100.50

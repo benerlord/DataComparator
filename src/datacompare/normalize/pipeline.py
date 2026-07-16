@@ -9,6 +9,7 @@ from .strings import normalize_string
 from .types import coerce_type, CoerceError
 from .units import parse_and_convert, UnitError
 from .decimals import round_half_up
+from .keys import apply_key_regex
 
 
 def _process_value(v: Any, rule: EffectiveRule) -> Any:
@@ -55,7 +56,8 @@ def normalize_side(
     compare: CompareConfig,
     side: Literal["left", "right"],
 ) -> pd.DataFrame:
-    """Rename -> filter -> per-field transform. Keys are passed through unchanged."""
+    """Apply key regex -> rename -> filter -> per-field transform."""
+    df = apply_key_regex(df, keys, side)
     renamed = apply_column_mapping(df, keys, compare.fields, side=side)
     key_cols = [k.right for k in keys]
 
