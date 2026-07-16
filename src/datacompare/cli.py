@@ -33,8 +33,11 @@ def run(
     fail_on_diff: bool = typer.Option(False, "--fail-on-diff"),
 ) -> None:
     """Execute a comparison task."""
+    from datetime import datetime, timezone
     from datacompare.utils.logging import configure_logging
-    configure_logging(level=log_level, log_file=Path(log_file).expanduser() if log_file else None)
+
+    # Phase 1: stderr-only logging so load-time errors still emit structured events.
+    configure_logging(level=log_level, log_file=None)
 
     params_dict = {}
     for kv in param:
@@ -53,6 +56,18 @@ def run(
     if dry_run:
         typer.echo("✓ configuration is valid (dry-run)")
         raise typer.Exit(0)
+
+    # Phase 2: attach file handler. Explicit --log-file wins; otherwise auto-place
+    # run-<UTC-ISO>.log inside the effective output dir so failure logs survive.
+    if log_file:
+        log_path: Path | None = Path(log_file).expanduser()
+    else:
+        effective_out_dir = Path(output_dir).expanduser() if output_dir else Path(task.output.dir).expanduser()
+        effective_out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+        log_path = effective_out_dir / f"run-{stamp}.log"
+    configure_logging(level=log_level, log_file=log_path)
+
     try:
         result = execute(task, conns, output_dir_override=output_dir,
                          formats_override=fmt or None, engine_override=engine)
