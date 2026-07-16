@@ -9,8 +9,11 @@ import re
 from typing import Literal
 
 import pandas as pd
+import structlog
 
 from datacompare.config.models import KeyMapping
+
+_logger = structlog.get_logger("datacompare.normalize.keys")
 
 
 class KeyRegexMismatchError(ValueError):
@@ -83,8 +86,21 @@ def _apply_pattern_to_column(
         s = v if isinstance(v, str) else str(v)
         m = pattern.fullmatch(s)
         if m is None:
-            # Task 5 replaces this with structured log + KeyRegexMismatchError.
-            raise NotImplementedError("Task 5 will implement mismatch handling")
+            _logger.error(
+                "key_regex_mismatch",
+                side=side,
+                column=column,
+                row_index=i,
+                value=s,
+                pattern=pattern_str,
+            )
+            raise KeyRegexMismatchError(
+                side=side,
+                column=column,
+                value=s,
+                pattern=pattern_str,
+                row_index=i,
+            )
         new_values.append(m.group(1) if use_group_one else m.group(0))
     # Assign via a Series with object dtype so None survives (default __setitem__
     # coerces None -> NaN in an object column on pandas 2.x).

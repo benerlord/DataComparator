@@ -106,3 +106,61 @@ def test_apply_key_regex_composite_keys_independent_regexes():
     result = apply_key_regex(df, keys, side="left")
     assert list(result["order_no"]) == ["123", "456"]
     assert list(result["region_code"]) == ["BJ", "SH"]
+
+
+import structlog
+
+
+def test_apply_key_regex_partial_match_raises_because_fullmatch():
+    df = pd.DataFrame({"code": ["abc123def"]})
+    keys = [KeyMapping(left="code", right="code", left_regex=r"\d+")]
+    with pytest.raises(KeyRegexMismatchError) as exc:
+        apply_key_regex(df, keys, side="left")
+    err = exc.value
+    assert err.side == "left"
+    assert err.column == "code"
+    assert err.value == "abc123def"
+    assert err.pattern == r"\d+"
+    assert err.row_index == 0
+
+
+def test_apply_key_regex_complete_mismatch_raises():
+    df = pd.DataFrame({"order_no": ["ORD-001", "ORD-002", "CANCEL-999"]})
+    keys = [KeyMapping(left="order_no", right="order_id", left_regex=r"ORD-\d+")]
+    with pytest.raises(KeyRegexMismatchError) as exc:
+        apply_key_regex(df, keys, side="left")
+    err = exc.value
+    assert err.row_index == 2  # third row, 0-based
+    assert err.value == "CANCEL-999"
+
+
+def test_apply_key_regex_first_mismatch_wins_fail_fast():
+    df = pd.DataFrame({"order_no": ["BAD1", "BAD2"]})
+    keys = [KeyMapping(left="order_no", right="order_id", left_regex=r"ORD-\d+")]
+    with pytest.raises(KeyRegexMismatchError) as exc:
+        apply_key_regex(df, keys, side="left")
+    assert exc.value.row_index == 0  # first mismatch, not second
+    assert exc.value.value == "BAD1"
+
+
+def test_apply_key_regex_emits_structured_log_on_mismatch():
+    cap = structlog.testing.LogCapture()
+    structlog.configure(processors=[cap])
+    try:
+        df = pd.DataFrame({"order_no": ["CANCEL-1"]})
+        keys = [KeyMapping(
+            left="order_no", right="order_id", left_regex=r"ORD-\d+",
+        )]
+        with pytest.raises(KeyRegexMismatchError):
+            apply_key_regex(df, keys, side="left")
+        assert len(cap.entries) >= 1
+        entry = next(e for e in cap.entries if e["event"] == "key_regex_mismatch")
+        assert entry["side"] == "left"
+        assert entry["column"] == "order_no"
+        assert entry["value"] == "CANCEL-1"
+        assert entry["pattern"] == r"ORD-\d+"
+        assert entry["row_index"] == 0
+        assert entry["log_level"] == "error"
+    finally:
+        # restore default configuration to avoid leaking test config
+        structlog.reset_defaults()
