@@ -239,6 +239,27 @@ runtime:
   log_level: INFO
 ```
 
+### 键值正则归一化（v0.3+）
+
+当左右两侧 key 字面不同但可通过正则映射到同一形式时（如左 `"ORD-2026-000123"` 对右 `"123"`），在 key 上配 `left_regex` / `right_regex`：
+
+```yaml
+match:
+  keys:
+    - left: order_no
+      right: order_id
+      left_regex: 'ORD-\d{4}-0*(\d+)'   # 提取 "123"
+```
+
+规则：
+- 用 Python `re.fullmatch`，整串必须匹配
+- 0 或 1 个捕获组；有捕获组时用 `group(1)`，无则用 `group(0)`
+- ≥2 个捕获组在 `datacompare validate` 阶段就报错（用非捕获组 `(?:...)` 分组）
+- 任一行不匹配 → 立即失败，退出码 2，日志有 `key_regex_mismatch` 事件
+- `None` 值原样透传，不参与正则
+
+想要 case-insensitive 或多行模式？用内联 flag：`(?i)ord-\d+`。
+
 ### 参数替换（三种占位符）
 
 | 占位符 | 来源 | 例子 |

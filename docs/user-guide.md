@@ -20,6 +20,31 @@ Three placeholder types:
 - `{{param.NAME}}` — CLI `--param NAME=VALUE`
 - `{{today}}` / `{{now}}` — built-in
 
+### Key regex normalization (v0.3+)
+
+When left and right keys differ in surface form but map to the same logical
+value via a regex (e.g. left `"ORD-2026-000123"` vs right `"123"`), attach
+`left_regex` / `right_regex` to the key entry:
+
+```yaml
+match:
+  keys:
+    - left: order_no
+      right: order_id
+      left_regex: 'ORD-\d{4}-0*(\d+)'   # extracts "123"
+```
+
+Rules:
+- Uses Python `re.fullmatch`; the whole string must match
+- 0 or 1 capture group; with a capture group `group(1)` wins, otherwise `group(0)`
+- 2 or more capture groups fail at `datacompare validate` time (use non-capturing
+  groups `(?:...)` for grouping)
+- Any row that fails to match aborts the run with exit code 2 and emits a
+  `key_regex_mismatch` log event
+- `None` values pass through unchanged (not fed to the regex)
+
+For case-insensitive or multiline matching use inline flags: `(?i)ord-\d+`.
+
 ### Comparison modes
 
 | Mode | Behavior |

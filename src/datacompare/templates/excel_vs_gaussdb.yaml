@@ -23,6 +23,13 @@ match:
       right: order_id
     - left: SKU编码
       right: sku_code
+    # Optional: normalize the key with a regex fullmatch before joining.
+    # Both left_regex and right_regex are optional and default to no transformation.
+    # Pattern must fullmatch and have 0 or 1 capture group; group 1 wins if present.
+    # Example:
+    #   - left: order_no
+    #     right: order_id
+    #     left_regex: 'ORD-\d{4}-0*(\d+)'   # extracts "123" from "ORD-2026-000123"
 
 compare:
   defaults:
