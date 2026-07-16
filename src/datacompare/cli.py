@@ -51,7 +51,10 @@ def run(
     output_dir: str | None = typer.Option(None, "--output-dir"),
     fmt: list[str] = typer.Option([], "--format", "-f"),
     engine: str | None = typer.Option(None, "--engine"),
-    log_level: str = typer.Option("INFO", "--log-level"),
+    log_level: str | None = typer.Option(
+        None, "--log-level",
+        help="DEBUG|INFO|WARN|ERROR. Overrides task.runtime.log_level. Default: INFO.",
+    ),
     log_file: str | None = typer.Option(None, "--log-file"),
     dry_run: bool = typer.Option(False, "--dry-run"),
     fail_on_diff: bool = typer.Option(False, "--fail-on-diff"),
@@ -61,7 +64,8 @@ def run(
     from datacompare.utils.logging import configure_logging
 
     # Phase 1: stderr-only logging so load-time errors still emit structured events.
-    configure_logging(level=log_level, log_file=None)
+    # Uses CLI value if given, else INFO; task-level value merged in Phase 2 once loaded.
+    configure_logging(level=log_level or "INFO", log_file=None)
 
     params_dict = {}
     for kv in param:
@@ -90,7 +94,9 @@ def run(
         effective_out_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
         log_path = effective_out_dir / f"run-{stamp}.log"
-    configure_logging(level=log_level, log_file=log_path)
+    # CLI --log-level wins; else fall back to task.runtime.log_level (default INFO).
+    effective_level = log_level or task.runtime.log_level
+    configure_logging(level=effective_level, log_file=log_path)
 
     try:
         result = execute(task, conns, output_dir_override=output_dir,
