@@ -5,6 +5,7 @@ first mismatch raises KeyRegexMismatchError (subclass of ValueError).
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 import pandas as pd
@@ -65,5 +66,26 @@ def apply_key_regex(
 def _apply_pattern_to_column(
     df: pd.DataFrame, column: str, pattern_str: str, side: str,
 ) -> None:
-    """Placeholder — real body in Task 4."""
-    raise NotImplementedError("Task 4 will implement regex logic")
+    """Transform df[column] in place using pattern_str fullmatch.
+
+    - None values pass through unchanged.
+    - If pattern has 1 capture group, use m.group(1); else use m.group(0).
+    - Mismatch handling: added in Task 5.
+    """
+    pattern = re.compile(pattern_str)
+    use_group_one = pattern.groups == 1
+
+    new_values = []
+    for i, v in enumerate(df[column].tolist()):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            new_values.append(None)
+            continue
+        s = v if isinstance(v, str) else str(v)
+        m = pattern.fullmatch(s)
+        if m is None:
+            # Task 5 replaces this with structured log + KeyRegexMismatchError.
+            raise NotImplementedError("Task 5 will implement mismatch handling")
+        new_values.append(m.group(1) if use_group_one else m.group(0))
+    # Assign via a Series with object dtype so None survives (default __setitem__
+    # coerces None -> NaN in an object column on pandas 2.x).
+    df[column] = pd.Series(new_values, dtype=object, index=df.index)
