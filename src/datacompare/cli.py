@@ -1,5 +1,6 @@
 """Typer CLI entry point."""
 from __future__ import annotations
+import sys
 from pathlib import Path
 import typer
 from datacompare import __version__
@@ -7,7 +8,30 @@ from datacompare.config.loader import load_task, load_connections
 from datacompare.config.errors import ConfigError
 from datacompare.runner import execute
 
+
+def _ensure_utf8_stdio() -> None:
+    """Force UTF-8 on stdout/stderr so emoji and CJK survive on Windows GBK consoles.
+
+    Without this, Click/Typer's echo escapes ❌ to the literal string "\\u274c"
+    when the stream's encoding can't represent the character (common on
+    Windows where default is GBK/CP936).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass  # pytest capture, closed stream, etc.
+
+
 app = typer.Typer(add_completion=False, no_args_is_help=True)
+
+
+@app.callback()
+def _root_callback() -> None:
+    _ensure_utf8_stdio()
 
 
 @app.command()
