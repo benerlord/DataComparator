@@ -4,8 +4,9 @@ import sys
 from pathlib import Path
 import typer
 from datacompare import __version__
-from datacompare.config.loader import load_task, load_connections
+from datacompare.config.loader import load_task, load_task_or_batch, load_connections
 from datacompare.config.errors import ConfigError
+from datacompare.config.models import TaskConfig, BatchConfig
 from datacompare.runner import execute
 
 
@@ -75,31 +76,69 @@ def run(
         k, v = kv.split("=", 1)
         params_dict[k] = v
     try:
-        task = load_task(Path(task_file).expanduser(), params_dict)
+        cfg = load_task_or_batch(Path(task_file).expanduser(), params_dict)
         conn_path = Path(connections).expanduser()
         conns = load_connections(conn_path) if conn_path.exists() else {}
     except ConfigError as e:
         typer.echo(f"❌ {e}", err=True)
         raise typer.Exit(1)
+
     if dry_run:
+        if isinstance(cfg, BatchConfig):
+            # Sub-task validation already ran during load; getting here means all pass.
+            typer.echo(f"✓ Batch config valid ({len(cfg.tasks)} tasks)")
+            for i, sub in enumerate(cfg.tasks, start=1):
+                typer.echo(f"  [{i}] {sub.name}")
+            raise typer.Exit(0)
         typer.echo("✓ configuration is valid (dry-run)")
         raise typer.Exit(0)
 
-    # Phase 2: attach file handler. Explicit --log-file wins; otherwise auto-place
-    # run-<UTC-ISO>.log inside the effective output dir so failure logs survive.
+    # Phase 2: log file path (uses cfg's output dir when single-task; batch handles its own dirs)
     if log_file:
         log_path: Path | None = Path(log_file).expanduser()
-    else:
-        effective_out_dir = Path(output_dir).expanduser() if output_dir else Path(task.output.dir).expanduser()
+    elif isinstance(cfg, TaskConfig):
+        effective_out_dir = Path(output_dir).expanduser() if output_dir else Path(cfg.output.dir).expanduser()
         effective_out_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
         log_path = effective_out_dir / f"run-{stamp}.log"
-    # CLI --log-level wins; else fall back to task.runtime.log_level (default INFO).
-    effective_level = log_level or task.runtime.log_level
+    else:
+        # Batch mode: batch.log is written by execute_batch; per-sub-task logs by execute().
+        log_path = None
+    effective_level = log_level or (
+        cfg.runtime.log_level if isinstance(cfg, TaskConfig)
+        else (cfg.runtime or {}).get("log_level", "INFO")
+    )
     configure_logging(level=effective_level, log_file=log_path)
 
+    if isinstance(cfg, BatchConfig):
+        from datacompare.runner import execute_batch
+        typer.echo(f"▶ Batch: {cfg.name} ({len(cfg.tasks)} tasks, on_error={cfg.on_error})\n")
+        batch_result = execute_batch(cfg, conns)
+        for i, r in enumerate(batch_result.task_results, start=1):
+            n = len(batch_result.task_results)
+            label = f"[{i}/{n}] {r.task_name}".ljust(45, ".")
+            if r.status == "success":
+                cr = r.comparison_result
+                typer.echo(
+                    f"{label} ✓ matched={cr.matched_rows}, diff={cr.diff_rows} "
+                    f"({r.duration_ms/1000:.1f}s)"
+                )
+            elif r.status == "failed":
+                msg = (str(r.error) or "").splitlines()[0][:80]
+                typer.echo(f"{label} ✗ {type(r.error).__name__}: {msg}")
+            else:
+                typer.echo(f"{label} - skipped")
+        typer.echo(
+            f"\nSummary: {batch_result.success_count} succeeded, "
+            f"{batch_result.failed_count} failed, {batch_result.skipped_count} skipped, "
+            f"total {batch_result.total_duration_ms/1000:.1f}s"
+        )
+        typer.echo(f"Reports: {(cfg.output or {}).get('dir', './reports')}/")
+        raise typer.Exit(batch_result.compute_exit_code(fail_on_diff))
+
+    # Single-task path (unchanged)
     try:
-        result = execute(task, conns, output_dir_override=output_dir,
+        result = execute(cfg, conns, output_dir_override=output_dir,
                          formats_override=fmt or None, engine_override=engine)
     except ConfigError as e:
         typer.echo(f"❌ {e}", err=True); raise typer.Exit(1)
