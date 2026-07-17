@@ -184,3 +184,76 @@ tasks:
     result = execute_batch(batch, connections={})
     assert result.task_results[1].status == "skipped"
     assert result.task_results[1].duration_ms == 0
+
+
+import json
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_execute_batch_writes_batch_log_with_start_and_end(tmp_path):
+    task = _batch_two_success(tmp_path)
+    batch = load_task_or_batch(task, {})
+    execute_batch(batch, connections={})
+    batch_log = tmp_path / "out" / "batch.log"
+    assert batch_log.exists()
+    entries = _read_jsonl(batch_log)
+    events = [e["event"] for e in entries]
+    assert events[0] == "batch_start"
+    assert events[-1] == "batch_end"
+    assert events.count("task_start") == 2
+    assert events.count("task_end") == 2
+
+
+def test_batch_log_task_end_carries_status_and_counts(tmp_path):
+    task = _batch_two_success(tmp_path)
+    batch = load_task_or_batch(task, {})
+    execute_batch(batch, connections={})
+    entries = _read_jsonl(tmp_path / "out" / "batch.log")
+    task_ends = [e for e in entries if e["event"] == "task_end"]
+    assert all(e["status"] == "success" for e in task_ends)
+    assert all("matched" in e and "diff" in e for e in task_ends)
+    assert all(isinstance(e["duration_ms"], int) for e in task_ends)
+
+
+def test_batch_log_records_failure_with_error_type_and_message(tmp_path):
+    _make_xlsx(tmp_path / "left.xlsx", [["order_id"], ["A1"]])
+    _make_xlsx(tmp_path / "right.xlsx", [["order_id"], ["A1"]])
+    task = tmp_path / "batch.yaml"
+    _write(task, f"""
+name: b
+sources:
+  left: {{type: excel, path: {tmp_path}/left.xlsx}}
+  right: {{type: excel, path: {tmp_path}/right.xlsx}}
+match:
+  keys: [{{left: order_id, right: order_id}}]
+compare:
+  fields: []
+output:
+  dir: {tmp_path}/out
+  formats: [json]
+tasks:
+  - name: broken
+    sources: {{left: {{path: {tmp_path}/missing.xlsx}}}}
+""")
+    batch = load_task_or_batch(task, {})
+    execute_batch(batch, connections={})
+    entries = _read_jsonl(tmp_path / "out" / "batch.log")
+    task_end = next(e for e in entries if e["event"] == "task_end")
+    assert task_end["status"] == "failed"
+    assert "error_type" in task_end
+    assert "error_message" in task_end
+
+
+def test_batch_log_end_event_has_final_counts(tmp_path):
+    task = _batch_two_success(tmp_path)
+    batch = load_task_or_batch(task, {})
+    execute_batch(batch, connections={})
+    entries = _read_jsonl(tmp_path / "out" / "batch.log")
+    end = next(e for e in entries if e["event"] == "batch_end")
+    assert end["success"] == 2
+    assert end["failed"] == 0
+    assert end["skipped"] == 0
+    assert isinstance(end["total_duration_ms"], int)

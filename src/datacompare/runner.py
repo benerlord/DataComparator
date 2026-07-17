@@ -1,7 +1,9 @@
 """Orchestration: build sources, run engine, dispatch reporters."""
 from __future__ import annotations
+import logging
 import time
 from pathlib import Path
+import structlog
 from datacompare.config.models import (
     TaskConfig, AnyConnection, ExcelSourceConfig, GaussDBSourceConfig,
     APISourceConfig, GaussDBConnection, APIConnection, BatchConfig,
@@ -19,6 +21,39 @@ from datacompare.reporters.console import ConsoleReporter
 from datacompare.reporters.html import HTMLReporter
 from datacompare.reporters.excel import ExcelReporter
 from datacompare.reporters.csv import CSVReporter
+
+
+def _init_batch_logger(batch_log_path: Path) -> tuple:
+    """Attach a dedicated file handler that writes structlog JSON events to batch_log_path.
+
+    Returns (logger, handler) so the caller can detach when done (avoid handler leakage
+    across multiple execute_batch invocations in the same process, e.g., tests).
+    """
+    batch_log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(str(batch_log_path), encoding="utf-8", mode="w")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    py_logger = logging.getLogger("datacompare.batch")
+    py_logger.addHandler(handler)
+    py_logger.setLevel(logging.INFO)
+    py_logger.propagate = False
+    # Ensure structlog is configured to emit JSON via stdlib logger factory.
+    # If a prior configure_logging() already set this up, this call is idempotent.
+    if not structlog.is_configured():
+        structlog.configure(
+            processors=[
+                structlog.contextvars.merge_contextvars,
+                structlog.processors.add_log_level,
+                structlog.processors.TimeStamper(fmt="iso"),
+                structlog.processors.StackInfoRenderer(),
+                structlog.processors.format_exc_info,
+                structlog.processors.JSONRenderer(ensure_ascii=False),
+            ],
+            wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+            context_class=dict,
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            cache_logger_on_first_use=False,
+        )
+    return structlog.get_logger("datacompare.batch"), handler
 
 
 def _build_source(cfg, connections: dict[str, AnyConnection], side_name: str) -> DataSource:
@@ -117,47 +152,75 @@ def _resolve_sub_task_output_dir(
 
 def execute_batch(batch: BatchConfig, connections: dict[str, AnyConnection]) -> BatchResult:
     """Run each sub-task sequentially. on_error=continue (default) runs all;
-    on_error=fail_fast marks remaining sub-tasks as skipped after first failure."""
+    on_error=fail_fast marks remaining sub-tasks as skipped after first failure.
+    Writes an aggregate structured log to {defaults.output.dir}/batch.log."""
     defaults = _build_defaults_dict(batch)
     default_out_dir = (batch.output or {}).get("dir", "./reports")
+    Path(default_out_dir).mkdir(parents=True, exist_ok=True)
+    batch_log_path = Path(default_out_dir) / "batch.log"
+    logger, handler = _init_batch_logger(batch_log_path)
+
     results: list[SubTaskResult] = []
     batch_start = time.monotonic()
+    logger.info("batch_start", batch_name=batch.name,
+                task_count=len(batch.tasks), on_error=batch.on_error)
 
-    aborted = False
-    for sub in batch.tasks:
-        if aborted:
-            results.append(SubTaskResult(
-                task_name=sub.name, status="skipped",
-                comparison_result=None, error=None, duration_ms=0,
-            ))
-            continue
+    try:
+        aborted = False
+        for i, sub in enumerate(batch.tasks, start=1):
+            if aborted:
+                results.append(SubTaskResult(
+                    task_name=sub.name, status="skipped",
+                    comparison_result=None, error=None, duration_ms=0,
+                ))
+                logger.info("task_end", task_name=sub.name, index=i,
+                            total=len(batch.tasks), status="skipped",
+                            duration_ms=0)
+                continue
 
-        sub_raw = {"name": sub.name, **(sub.model_extra or {})}
-        merged = merge_sub_task(defaults, sub_raw)
-        sub_out_dir = _resolve_sub_task_output_dir(sub_raw, merged, default_out_dir, sub.name)
-        merged.setdefault("output", {})
-        merged["output"]["dir"] = sub_out_dir
+            logger.info("task_start", task_name=sub.name, index=i, total=len(batch.tasks))
 
-        sub_task_start = time.monotonic()
-        try:
-            task = TaskConfig.model_validate(merged)
-            cr = execute(task, connections)
-            results.append(SubTaskResult(
-                task_name=sub.name, status="success",
-                comparison_result=cr, error=None,
-                duration_ms=int((time.monotonic() - sub_task_start) * 1000),
-            ))
-        except Exception as e:
-            results.append(SubTaskResult(
-                task_name=sub.name, status="failed",
-                comparison_result=None, error=e,
-                duration_ms=int((time.monotonic() - sub_task_start) * 1000),
-            ))
-            if batch.on_error == "fail_fast":
-                aborted = True
+            sub_raw = {"name": sub.name, **(sub.model_extra or {})}
+            merged = merge_sub_task(defaults, sub_raw)
+            sub_out_dir = _resolve_sub_task_output_dir(sub_raw, merged, default_out_dir, sub.name)
+            merged.setdefault("output", {})
+            merged["output"]["dir"] = sub_out_dir
 
-    return BatchResult(
-        batch_name=batch.name,
-        task_results=results,
-        total_duration_ms=int((time.monotonic() - batch_start) * 1000),
-    )
+            sub_task_start = time.monotonic()
+            try:
+                task = TaskConfig.model_validate(merged)
+                cr = execute(task, connections)
+                dur = int((time.monotonic() - sub_task_start) * 1000)
+                results.append(SubTaskResult(
+                    task_name=sub.name, status="success",
+                    comparison_result=cr, error=None, duration_ms=dur,
+                ))
+                logger.info("task_end", task_name=sub.name, index=i,
+                            total=len(batch.tasks), status="success",
+                            matched=cr.matched_rows, diff=cr.diff_rows,
+                            left_only=cr.left_only, right_only=cr.right_only,
+                            duration_ms=dur)
+            except Exception as e:
+                dur = int((time.monotonic() - sub_task_start) * 1000)
+                results.append(SubTaskResult(
+                    task_name=sub.name, status="failed",
+                    comparison_result=None, error=e, duration_ms=dur,
+                ))
+                logger.info("task_end", task_name=sub.name, index=i,
+                            total=len(batch.tasks), status="failed",
+                            error_type=type(e).__name__,
+                            error_message=str(e), duration_ms=dur)
+                if batch.on_error == "fail_fast":
+                    aborted = True
+
+        total_dur = int((time.monotonic() - batch_start) * 1000)
+        result = BatchResult(
+            batch_name=batch.name, task_results=results, total_duration_ms=total_dur,
+        )
+        logger.info("batch_end", batch_name=batch.name,
+                    success=result.success_count, failed=result.failed_count,
+                    skipped=result.skipped_count, total_duration_ms=total_dur)
+        return result
+    finally:
+        logging.getLogger("datacompare.batch").removeHandler(handler)
+        handler.close()
