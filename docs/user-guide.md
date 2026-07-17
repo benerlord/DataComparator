@@ -45,6 +45,57 @@ Rules:
 
 For case-insensitive or multiline matching use inline flags: `(?i)ord-\d+`.
 
+### Batch mode (v0.4+): one YAML runs N comparisons
+
+When one Excel has dozens of sheets with different schemas, or you need to run
+several independent comparisons in a batch, use batch mode:
+
+```yaml
+name: cmdb_multi_sync
+on_error: continue        # continue (default) | fail_fast
+
+sources:                  # defaults, deep-merged into each sub-task
+  left: {type: excel, path: manage.xlsx}
+  right: {type: gaussdb, connection: prod_cmdb}
+
+output:
+  dir: ./reports          # each sub-task auto-lands in ./reports/{sub_task.name}/
+  formats: [html, json]
+
+tasks:
+  - name: physical_host
+    sources:
+      left: {sheets: [{name: "PHYSICAL_HOST"}]}
+      right: {query: "SELECT ... FROM physical_host"}
+    match: {keys: [{left: id, right: id}]}
+    compare: {fields: [...]}
+
+  - name: cloud_vm
+    sources:
+      left: {sheets: [{name: "CLOUD_VM"}]}
+      right: {query: "SELECT ... FROM cloud_vm"}
+    match: {keys: [{left: id, right: id}]}
+    compare: {fields: [...]}
+```
+
+Rules:
+- Presence of `tasks:` at the top level triggers batch mode; without it the
+  file is interpreted as a single-task YAML (existing behavior unchanged)
+- **Deep merge**: dicts recurse; lists replace wholesale; a nested dict whose
+  `type` changes between defaults and sub-task is replaced entirely (avoids
+  `gaussdb.connection` leaking when the sub-task switches to `type: api`)
+- Each sub-task writes to `{defaults.output.dir}/{sub_task.name}/report.*`
+  plus its own `run-{ts}.log`
+- Aggregate meta-events land in `{defaults.output.dir}/batch.log` (one
+  `batch_start` / `task_start` / `task_end` / `batch_end` JSON line each)
+- Exit code priority: `2` (runtime error) > `10` (diff + `--fail-on-diff`)
+  > `1` (config error) > `0`
+
+Generate a template with:
+```bash
+datacompare init batch-example -o batch.yaml
+```
+
 ### Comparison modes
 
 | Mode | Behavior |

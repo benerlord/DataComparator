@@ -262,6 +262,50 @@ match:
 
 想要 case-insensitive 或多行模式？用内联 flag：`(?i)ord-\d+`。
 
+### 批次模式（v0.4+）：一份 YAML 跑 N 个比对
+
+当一个 Excel 有几十个 sheet，每个 sheet schema 不同，或者一批数据源要各自比对时，用批次模式：
+
+```yaml
+name: cmdb_multi_sync
+on_error: continue           # continue（默认）| fail_fast
+
+sources:                     # ↓ defaults，被每个 sub-task 深度合并
+  left: {type: excel, path: manage.xlsx}
+  right: {type: gaussdb, connection: prod_cmdb}
+
+output:
+  dir: ./reports             # 每个 sub-task 会自动放到 ./reports/{sub_task.name}/
+  formats: [html, json]
+
+tasks:
+  - name: physical_host
+    sources:
+      left: {sheets: [{name: "PHYSICAL_HOST"}]}      # 只写 sheets，path 继承
+      right: {query: "SELECT ... FROM physical_host"} # 只写 query，connection 继承
+    match: {keys: [{left: id, right: id}]}
+    compare: {fields: [...]}
+
+  - name: cloud_vm
+    sources:
+      left: {sheets: [{name: "CLOUD_VM"}]}
+      right: {query: "SELECT ... FROM cloud_vm"}
+    match: {keys: [{left: id, right: id}]}
+    compare: {fields: [...]}
+```
+
+规则要点：
+- **有 `tasks:` 键 = 批次模式**；无则为单任务（现有行为完全不变）
+- **深度合并**：dict 递归、list 整体替换、嵌套 dict 的 `type` 变化时整体替换（避免 gaussdb→api 时残留 connection）
+- **每个 sub-task 一个子目录**：`./reports/{sub_task.name}/report.*` + `run-{ts}.log`
+- **`./reports/batch.log`**：聚合元事件日志，扫全景用
+- **退出码**：`2` > `10` > `1` > `0`（运行错 > diff+fail_on_diff > 配置错 > 成功）
+
+生成模板：
+```bash
+datacompare init batch-example -o batch.yaml
+```
+
 ### 参数替换（三种占位符）
 
 | 占位符 | 来源 | 例子 |

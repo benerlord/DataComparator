@@ -68,6 +68,7 @@ CLI (Typer)  →  Config (Pydantic + YAML)  →  DataSource 抽象
 - **GaussDB 有两个变体 A/T**（v0.2 起）：A 用 psycopg2（PostgreSQL 协议），T 用 JDBC（JayDeBeApi + gsjdbc4.jar）。共用 `type: gaussdb`，用 `variant: a|t` 字段区分。默认 `a`，向后兼容。
 - **`GaussDBConnection` 是联合类型**（`GaussDBAConnection | GaussDBTConnection`），不能作为构造器调用。分派用 `isinstance` 检查具体子类。
 - **KeyMapping 支持 `left_regex` / `right_regex`**（v0.3 起）：可选，跑 `re.fullmatch`，允许 0 或 1 个捕获组（≥2 组加载时报错）。有捕获组用 `group(1)`，否则用 `group(0)`。**严格失败**：任一行不匹配 → 抛 `KeyRegexMismatchError`（`ValueError` 子类）→ CLI exit 2。null 值透传不参与匹配。归属层：`normalize/keys.py`。运行位置：`normalize_side` 首行，在 `apply_column_mapping` 之前。
+- **批次模式 `tasks:`**（v0.4 起）：task.yaml 顶层出现 `tasks:` 键 → `load_task_or_batch` 返回 `BatchConfig`；`execute_batch` 顺序跑每个 sub-task。每个 sub-task 深度合并 defaults：dict 递归、list 替换、嵌套 dict 的 `type` 变化时 replace。`on_error: continue`（默认）或 `fail_fast`。CLI 退出码优先级 `2 > 10 > 1 > 0`。批次总日志 `batch.log` 只记元事件，sub-task 详细日志仍在各自目录。**加载阶段**（YAML 解析、defaults 合并冲突、sub-task 唯一性、每个 sub-task 完整 Pydantic 校验）**永远 fail-fast**，不受 `on_error` 影响。
 
 ## 开发流程约定
 
