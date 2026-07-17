@@ -119,3 +119,68 @@ tasks:
     # auto-path NOT used
     assert not (tmp_path / "out" / "sub_custom").exists() or \
         not (tmp_path / "out" / "sub_custom" / "report.json").exists()
+
+
+def test_execute_batch_fail_fast_skips_remaining(tmp_path):
+    _make_xlsx(tmp_path / "left.xlsx", [["order_id"], ["A1"]])
+    _make_xlsx(tmp_path / "right.xlsx", [["order_id"], ["A1"]])
+    task = tmp_path / "batch.yaml"
+    _write(task, f"""
+name: b
+on_error: fail_fast
+sources:
+  left: {{type: excel, path: {tmp_path}/left.xlsx}}
+  right: {{type: excel, path: {tmp_path}/right.xlsx}}
+match:
+  keys: [{{left: order_id, right: order_id}}]
+compare:
+  fields: []
+output:
+  dir: {tmp_path}/out
+  formats: [json]
+tasks:
+  - name: ok1
+  - name: broken
+    sources: {{left: {{path: {tmp_path}/missing.xlsx}}}}
+  - name: never_runs
+  - name: also_skipped
+""")
+    batch = load_task_or_batch(task, {})
+    result = execute_batch(batch, connections={})
+    assert result.success_count == 1
+    assert result.failed_count == 1
+    assert result.skipped_count == 2
+    assert result.task_results[0].status == "success"
+    assert result.task_results[1].status == "failed"
+    assert result.task_results[2].status == "skipped"
+    assert result.task_results[3].status == "skipped"
+    # skipped sub-tasks should NOT have created output dirs
+    assert not (tmp_path / "out" / "never_runs").exists()
+    assert not (tmp_path / "out" / "also_skipped").exists()
+
+
+def test_execute_batch_fail_fast_reports_zero_duration_for_skipped(tmp_path):
+    _make_xlsx(tmp_path / "left.xlsx", [["order_id"], ["A1"]])
+    task = tmp_path / "batch.yaml"
+    _write(task, f"""
+name: b
+on_error: fail_fast
+sources:
+  left: {{type: excel, path: {tmp_path}/left.xlsx}}
+  right: {{type: excel, path: {tmp_path}/left.xlsx}}
+match:
+  keys: [{{left: order_id, right: order_id}}]
+compare:
+  fields: []
+output:
+  dir: {tmp_path}/out
+  formats: [json]
+tasks:
+  - name: fail_me
+    sources: {{left: {{path: {tmp_path}/nope.xlsx}}}}
+  - name: skipped_task
+""")
+    batch = load_task_or_batch(task, {})
+    result = execute_batch(batch, connections={})
+    assert result.task_results[1].status == "skipped"
+    assert result.task_results[1].duration_ms == 0

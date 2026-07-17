@@ -116,14 +116,22 @@ def _resolve_sub_task_output_dir(
 
 
 def execute_batch(batch: BatchConfig, connections: dict[str, AnyConnection]) -> BatchResult:
-    """Run each sub-task sequentially. on_error=continue (default) — always run all;
-    fail_fast handling arrives in T6."""
+    """Run each sub-task sequentially. on_error=continue (default) runs all;
+    on_error=fail_fast marks remaining sub-tasks as skipped after first failure."""
     defaults = _build_defaults_dict(batch)
     default_out_dir = (batch.output or {}).get("dir", "./reports")
     results: list[SubTaskResult] = []
     batch_start = time.monotonic()
 
+    aborted = False
     for sub in batch.tasks:
+        if aborted:
+            results.append(SubTaskResult(
+                task_name=sub.name, status="skipped",
+                comparison_result=None, error=None, duration_ms=0,
+            ))
+            continue
+
         sub_raw = {"name": sub.name, **(sub.model_extra or {})}
         merged = merge_sub_task(defaults, sub_raw)
         sub_out_dir = _resolve_sub_task_output_dir(sub_raw, merged, default_out_dir, sub.name)
@@ -145,6 +153,8 @@ def execute_batch(batch: BatchConfig, connections: dict[str, AnyConnection]) -> 
                 comparison_result=None, error=e,
                 duration_ms=int((time.monotonic() - sub_task_start) * 1000),
             ))
+            if batch.on_error == "fail_fast":
+                aborted = True
 
     return BatchResult(
         batch_name=batch.name,
