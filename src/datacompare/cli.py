@@ -135,9 +135,15 @@ def validate(
 
 @app.command()
 def init(
-    template: str = typer.Argument(..., help="excel-vs-gaussdb | api-vs-gaussdb | excel-vs-api"),
+    template: str = typer.Argument(..., help="excel-vs-gaussdb | excel-vs-gaussdb-t | api-vs-gaussdb | excel-vs-api"),
+    output: str | None = typer.Option(
+        None, "--output", "-o",
+        help="Write template to this file (UTF-8, no BOM). "
+             "Use this instead of shell redirection on Windows/PowerShell where "
+             "'>' produces UTF-16 that this tool cannot parse.",
+    ),
 ) -> None:
-    """Emit a config template to stdout."""
+    """Emit a config template. Writes to --output (recommended) or stdout."""
     from importlib import resources
     filename = template.replace("-", "_") + ".yaml"
     try:
@@ -145,7 +151,14 @@ def init(
     except (FileNotFoundError, ModuleNotFoundError):
         typer.echo(f"unknown template: {template}", err=True)
         raise typer.Exit(1)
-    typer.echo(content)
+    if output:
+        out_path = Path(output).expanduser()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        # Explicit UTF-8, LF newlines, no BOM — parseable by ruamel.yaml regardless of shell.
+        out_path.write_text(content, encoding="utf-8", newline="\n")
+        typer.echo(f"✓ wrote {out_path} ({len(content)} bytes, UTF-8)")
+    else:
+        typer.echo(content)
 
 
 if __name__ == "__main__":

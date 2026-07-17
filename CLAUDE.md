@@ -20,7 +20,7 @@ CLI 工具，用 YAML 配置驱动，比对 **Excel / GaussDB / HTTP API** 之�
 
 # 运行 CLI
 .venv/Scripts/python -m datacompare.cli version
-.venv/Scripts/python -m datacompare.cli init excel-vs-gaussdb > task.yaml
+.venv/Scripts/python -m datacompare.cli init excel-vs-gaussdb -o task.yaml  # -o 写 UTF-8；PowerShell 里 > 会变 UTF-16 无法解析
 .venv/Scripts/python -m datacompare.cli validate task.yaml --connections ~/.datacompare/connections.yaml
 .venv/Scripts/python -m datacompare.cli run task.yaml --param month=2026-07
 ```

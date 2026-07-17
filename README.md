@@ -95,8 +95,10 @@ python3.11 -m venv .venv
 
 **步骤 1**：生成一个任务模板
 ```bash
-datacompare init excel-vs-gaussdb > task.yaml
+datacompare init excel-vs-gaussdb -o task.yaml
 ```
+
+> 💡 **Windows 用户注意**：优先用 `-o task.yaml` 而不是 `> task.yaml`。PowerShell 的 `>` 会写成 UTF-16，`datacompare run` 无法解析（会报编码错）。git-bash 里两种都可以。
 
 **步骤 2**：**手动创建**连接凭据文件（这个文件**不随项目分发**，需要自己新建，**不要提交到 Git**）
 
@@ -403,10 +405,11 @@ crm_api:
 ### 1. 生成任务模板
 
 ```bash
-# 三种模板可选
-datacompare init excel-vs-gaussdb > task.yaml
-datacompare init api-vs-gaussdb   > task.yaml
-datacompare init excel-vs-api     > task.yaml
+# 四种模板可选（用 -o 直写 UTF-8，Windows/PowerShell 必须这样，git-bash 可用 > 或 -o）
+datacompare init excel-vs-gaussdb    -o task.yaml
+datacompare init excel-vs-gaussdb-t  -o task.yaml   # GaussDB T (JDBC 变体)
+datacompare init api-vs-gaussdb      -o task.yaml
+datacompare init excel-vs-api        -o task.yaml
 ```
 
 ### 2. 干跑校验（不执行，只检查配置和连接）
