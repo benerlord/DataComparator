@@ -230,3 +230,42 @@ class APIConnection(BaseModel):
 
 
 AnyConnection = _GaussDBConnectionValidated | APIConnection
+
+
+# ---------- Batch (multi-task) mode -----------------------------------------
+
+class BatchTaskOverride(BaseModel):
+    """Sub-task entry inside a BatchConfig. Freeform pre-merge; validated
+    as a full TaskConfig after deep-merging with batch defaults.
+    """
+    model_config = ConfigDict(extra="allow")
+    name: str
+
+
+class BatchConfig(BaseModel):
+    """Top-level batch document. Presence of 'tasks:' triggers multi mode."""
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    description: str = ""
+    on_error: Literal["continue", "fail_fast"] = "continue"
+    # All "defaults" blocks — pre-merge freeform dicts, validated per sub-task after merge.
+    sources: dict[str, dict] | None = None
+    match: dict | None = None
+    compare: dict | None = None
+    output: dict | None = None
+    runtime: dict | None = None
+    tasks: list[BatchTaskOverride] = Field(min_length=1)
+
+    @field_validator("tasks")
+    @classmethod
+    def _unique_names(cls, v: list[BatchTaskOverride]) -> list[BatchTaskOverride]:
+        names = [t.name for t in v]
+        seen: set[str] = set()
+        dups: list[str] = []
+        for n in names:
+            if n in seen:
+                dups.append(n)
+            seen.add(n)
+        if dups:
+            raise ValueError(f"sub-task names must be unique; duplicates: {dups}")
+        return v
