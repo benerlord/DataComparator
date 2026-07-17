@@ -79,3 +79,23 @@ def test_init_output_written_file_is_yaml_parseable_by_ruamel(tmp_path):
     assert result.exit_code == 0
     data = YAML(typ="safe").load(out.read_text(encoding="utf-8"))
     assert data["name"] == "每日销售数据核对"
+
+
+def test_init_batch_example_writes_valid_yaml(tmp_path):
+    from ruamel.yaml import YAML
+    out = tmp_path / "batch.yaml"
+    result = runner.invoke(app, ["init", "batch-example", "-o", str(out)])
+    assert result.exit_code == 0
+    assert out.exists()
+    data = YAML(typ="safe").load(out.read_text(encoding="utf-8"))
+    assert "tasks" in data
+    assert isinstance(data["tasks"], list)
+    assert len(data["tasks"]) >= 2
+
+
+def test_init_batch_example_content_documents_defaults_and_overrides(tmp_path):
+    out = tmp_path / "batch.yaml"
+    result = runner.invoke(app, ["init", "batch-example", "-o", str(out)])
+    text = out.read_text(encoding="utf-8")
+    assert "sources:" in text
+    assert "on_error" in text

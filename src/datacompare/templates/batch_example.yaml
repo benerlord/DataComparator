@@ -1,0 +1,63 @@
+# Batch mode: 一份 YAML 声明多个 sub-task，共享 defaults，各自出报告
+# 详见 docs/superpowers/specs/2026-07-17-multi-task-yaml-design.md
+name: cmdb_multi_sync
+description: CMDB 数据一致性核对（示例：同 Excel 多 sheet vs 多 GaussDB 表）
+on_error: continue        # continue（默认）| fail_fast
+
+# 顶层字段 = defaults，被每个 sub-task 深度合并覆盖
+sources:
+  left:
+    type: excel
+    path: ./data/manage.xlsx
+  right:
+    type: gaussdb
+    connection: prod_cmdb
+output:
+  dir: ./reports
+  formats: [html, json]
+runtime:
+  log_level: INFO
+
+tasks:
+  - name: physical_host
+    sources:
+      left:
+        sheets: [{name: "CMDB系统_SYS_PHYSICALHOST"}]   # 继承 path
+      right:
+        query: "SELECT id, name, host_ip FROM sys_physicalhost"  # 继承 connection
+    match:
+      keys: [{left: id, right: id}]
+    compare:
+      fields:
+        - {left: name, right: name}
+        - {left: hostIp, right: host_ip}
+
+  - name: cloud_vm
+    sources:
+      left:
+        sheets: [{name: "CMDB系统_CLOUD_VM"}]
+      right:
+        query: "SELECT id, name, ip_address FROM cloud_vm"
+    match:
+      keys: [{left: id, right: id}]
+    compare:
+      fields:
+        - {left: name, right: name}
+        - {left: ipAddress, right: ip_address}
+
+  # 示例：完全覆盖 right 到另一种 type（要补齐所有必填字段）
+  # - name: vs_api
+  #   sources:
+  #     left:
+  #       sheets: [{name: "EXTERNAL_VMS"}]
+  #     right:
+  #       type: api
+  #       connection: cloud_platform
+  #       url: /v1/vms
+  #       pagination: {type: page, page_param: page, size_param: size, size: 200}
+  #       data_path: $.data.list[*]
+  #   match:
+  #     keys: [{left: id, right: id}]
+  #   compare:
+  #     fields:
+  #       - {left: name, right: name}

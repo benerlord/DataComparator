@@ -174,7 +174,7 @@ def validate(
 
 @app.command()
 def init(
-    template: str = typer.Argument(..., help="excel-vs-gaussdb | excel-vs-gaussdb-t | api-vs-gaussdb | excel-vs-api"),
+    template: str = typer.Argument(..., help="excel-vs-gaussdb | excel-vs-gaussdb-t | api-vs-gaussdb | excel-vs-api | batch-example"),
     output: str | None = typer.Option(
         None, "--output", "-o",
         help="Write template to this file (UTF-8, no BOM). "
