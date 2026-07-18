@@ -40,3 +40,21 @@ def test_effective_rule_null_equivalents_override():
     rule = FieldRule(left="a", right="a", null_equivalents=["-", "N/A"])
     eff = effective_rule(rule, defaults)
     assert eff.null_equivalents == ["-", "N/A"]
+
+
+def test_apply_column_mapping_left_col_named_like_right_key_no_collision():
+    """Regression: left has an unmapped column whose name equals a right-side
+    canonical target (e.g. left.id maps to right.name, but left also has a
+    stray 'name' column). The unmapped column must be dropped before rename,
+    otherwise two 'name' columns collide and the downstream merge fails.
+    """
+    df = pd.DataFrame({
+        "id": ["1", "2"],
+        "name": ["should-drop-a", "should-drop-b"],
+        "amount": ["10", "20"],
+    })
+    keys = [KeyMapping(left="id", right="name")]
+    fields = [FieldRule(left="amount", right="amount")]
+    result = apply_column_mapping(df, keys, fields, side="left")
+    assert list(result.columns) == ["name", "amount"]
+    assert result["name"].tolist() == ["1", "2"]  # came from 'id', not stray 'name'

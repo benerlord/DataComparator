@@ -68,5 +68,8 @@ def apply_column_mapping(
             path=f"sources.{side}",
             suggestion=f"available columns: {list(df.columns)}",
         )
-    keep = list(rename_map.values())
-    return df.rename(columns=rename_map)[keep]
+    # Filter to mapped source columns FIRST, then rename. Prevents an unmapped
+    # source column whose name equals a target name (e.g. left has stray 'name'
+    # while id→name) from colliding with the renamed column.
+    src_cols = list(rename_map.keys())
+    return df[src_cols].rename(columns=rename_map)
