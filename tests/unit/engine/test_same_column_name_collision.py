@@ -1,0 +1,80 @@
+"""Regression guard: when left and right have same-named compare fields,
+pandas' __left/__right suffixes are internal and the diff report exposes
+clean left_value/right_value columns.
+
+Anchored via engine.memory.InMemoryEngine; parity holds for DiskEngine per
+tests/engine/test_parity.py.
+"""
+from pathlib import Path
+import pandas as pd
+from openpyxl import Workbook
+
+from datacompare.config.models import (
+    TaskConfig, ExcelSourceConfig, MatchConfig, KeyMapping,
+    CompareConfig, CompareDefaults, FieldRule, OutputConfig,
+)
+from datacompare.engine.memory import InMemoryEngine
+from datacompare.sources.excel import ExcelSource
+
+
+def _xlsx(path: Path, rows):
+    wb = Workbook(); ws = wb.active
+    for r in rows: ws.append(r)
+    wb.save(path)
+
+
+def test_same_column_name_on_both_sides_produces_clean_diff_report(tmp_path):
+    """Both sides have ID and amount columns; join key is order_no; ID and
+    amount are compare fields on both sides with identical names."""
+    _xlsx(tmp_path / "left.xlsx", [
+        ["order_no", "ID", "amount"],
+        ["ORD1", "100", "1.00"],
+        ["ORD2", "200", "2.00"],
+        ["ORD3", "300", "3.00"],
+    ])
+    _xlsx(tmp_path / "right.xlsx", [
+        ["order_no", "ID", "amount"],
+        ["ORD1", "100", "1.00"],   # identical
+        ["ORD2", "999", "2.00"],   # ID differs
+        ["ORD3", "300", "3.99"],   # amount differs
+    ])
+
+    task = TaskConfig(
+        name="collision_test",
+        sources={
+            "left": ExcelSourceConfig(path=str(tmp_path / "left.xlsx")),
+            "right": ExcelSourceConfig(path=str(tmp_path / "right.xlsx")),
+        },
+        match=MatchConfig(keys=[KeyMapping(left="order_no", right="order_no")]),
+        compare=CompareConfig(
+            defaults=CompareDefaults(),
+            fields=[
+                FieldRule(left="ID", right="ID"),
+                FieldRule(left="amount", right="amount",
+                          mode="numeric", decimal_places=2),
+            ],
+        ),
+        output=OutputConfig(dir=str(tmp_path / "out"), formats=["json"]),
+    )
+    left = ExcelSource(task.sources["left"], name="left")
+    right = ExcelSource(task.sources["right"], name="right")
+    try:
+        result = InMemoryEngine().compare(left, right, task)
+    finally:
+        left.close(); right.close()
+
+    assert result.matched_rows == 3
+    assert result.identical_rows == 1
+    assert result.diff_rows == 2
+
+    # Diff details must expose clean column names, not pandas __left/__right.
+    cols = set(result.diff_details.columns)
+    assert "left_value" in cols
+    assert "right_value" in cols
+    assert "field" in cols
+    # No leaked internal suffixes:
+    assert not any(c.endswith("__left") or c.endswith("__right") for c in cols)
+
+    # Both same-named fields appear as diffs.
+    diff_fields = set(result.diff_details["field"])
+    assert diff_fields == {"ID", "amount"}
