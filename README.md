@@ -454,7 +454,15 @@ datacompare init excel-vs-gaussdb    -o task.yaml
 datacompare init excel-vs-gaussdb-t  -o task.yaml   # GaussDB T (JDBC 变体)
 datacompare init api-vs-gaussdb      -o task.yaml
 datacompare init excel-vs-api        -o task.yaml
+datacompare init batch-example       -o batch.yaml  # 批次模式（多 sub-task）
 ```
+
+> 💡 **Excel vs Excel**：架构层面完全支持（左右都是 `type: excel` 即可），但没预置 init 模板。参照上面 `excel-vs-gaussdb` 生成后，把 `right` 段改成 `type: excel` 就行，示例：
+> ```yaml
+> sources:
+>   left:  {type: excel, path: ./expected.xlsx, sheets: [{name: Sheet1}]}
+>   right: {type: excel, path: ./actual.xlsx,   sheets: [{name: Sheet1}]}
+> ```
 
 ### 2. 干跑校验（不执行，只检查配置和连接）
 
