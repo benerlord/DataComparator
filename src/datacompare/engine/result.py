@@ -9,6 +9,7 @@ class DiffType(str, Enum):
     VALUE_MISMATCH = "value_mismatch"
     TYPE_ERROR = "type_error"
     UNIT_ERROR = "unit_error"
+    REGEX_ERROR = "regex_error"
     NULL_MISMATCH = "null_mismatch"
 
 

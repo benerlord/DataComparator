@@ -35,6 +35,10 @@ def test_diff_type_enum():
     assert DiffType.UNIT_ERROR.value == "unit_error"
     assert DiffType.NULL_MISMATCH.value == "null_mismatch"
 
+
+def test_diff_type_regex_error_enum():
+    assert DiffType.REGEX_ERROR.value == "regex_error"
+
 def test_field_error_fields():
     e = FieldError(row_key={"id": "A1"}, field="amount", kind="type_error", original="N/A")
     assert e.kind == "type_error"
