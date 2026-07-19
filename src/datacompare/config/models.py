@@ -2,7 +2,7 @@
 from __future__ import annotations
 import re
 from typing import Literal
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 
 class SheetSelector(BaseModel):
@@ -103,10 +103,19 @@ class CompareDefaults(BaseModel):
 
 
 class FieldRule(BaseModel):
-    """Field-level rule. `None` = inherit from CompareDefaults."""
+    """Field-level rule. `None` on behavioral flags = inherit from CompareDefaults.
+
+    Each side must provide exactly one of `<side>` (column name) or
+    `<side>_literal` (constant string or null broadcast to every row).
+    "Provided" is judged by Pydantic's `model_fields_set` so `left_literal: null`
+    is distinguishable from "left_literal not written". Do NOT rewrite this
+    check as `value is None`.
+    """
     model_config = ConfigDict(extra="forbid")
-    left: str
-    right: str
+    left: str | None = None
+    right: str | None = None
+    left_literal: str | None = None
+    right_literal: str | None = None
     mode: Literal["exact", "numeric", "string"] | None = None
     decimal_places: int | None = None
     parse_unit: bool | None = None
@@ -117,6 +126,21 @@ class FieldRule(BaseModel):
     null_equivalents: list[str] | None = None
     as_type: Literal["datetime", "int", "float", "string"] | None = None
     datetime_format: str | None = None
+
+    @model_validator(mode="after")
+    def _check_source_specifiers(self):
+        for side in ("left", "right"):
+            col_set = side in self.model_fields_set
+            lit_set = f"{side}_literal" in self.model_fields_set
+            if not col_set and not lit_set:
+                raise ValueError(
+                    f"field must specify '{side}' or '{side}_literal'"
+                )
+            if col_set and lit_set:
+                raise ValueError(
+                    f"cannot specify both '{side}' and '{side}_literal'"
+                )
+        return self
 
 
 class CompareConfig(BaseModel):

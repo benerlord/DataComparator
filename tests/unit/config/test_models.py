@@ -88,3 +88,44 @@ def test_key_mapping_allows_noncapturing_groups():
 def test_key_mapping_explicit_null_regex():
     k = KeyMapping(left="a", right="b", left_regex=None, right_regex=None)
     assert k.left_regex is None and k.right_regex is None
+
+
+class TestFieldRuleLiterals:
+    def test_column_only_both_sides_ok(self):
+        f = FieldRule(left="a", right="b")
+        assert f.left == "a" and f.right == "b"
+        assert f.left_literal is None and f.right_literal is None
+
+    def test_left_literal_with_right_column_ok(self):
+        f = FieldRule(left_literal="Azone", right="type")
+        assert f.left is None
+        assert f.left_literal == "Azone"
+        assert f.right == "type"
+
+    def test_left_literal_null_ok(self):
+        # explicit null literal — asserts right column is None for matched rows
+        f = FieldRule(left_literal=None, right="deleted_at")
+        assert f.left is None
+        assert f.left_literal is None
+        assert "left_literal" in f.model_fields_set  # marker: explicitly set
+
+    def test_right_literal_with_left_column_ok(self):
+        f = FieldRule(left="name", right_literal="prod")
+        assert f.right is None
+        assert f.right_literal == "prod"
+
+    def test_missing_left_specifier_raises(self):
+        with pytest.raises(ValidationError, match="'left' or 'left_literal'"):
+            FieldRule(right="b")
+
+    def test_missing_right_specifier_raises(self):
+        with pytest.raises(ValidationError, match="'right' or 'right_literal'"):
+            FieldRule(left="a")
+
+    def test_both_left_and_left_literal_raises(self):
+        with pytest.raises(ValidationError, match="cannot specify both 'left'"):
+            FieldRule(left="a", left_literal="X", right="b")
+
+    def test_both_right_and_right_literal_raises(self):
+        with pytest.raises(ValidationError, match="cannot specify both 'right'"):
+            FieldRule(left="a", right="b", right_literal="Y")
