@@ -106,6 +106,28 @@ datacompare init batch-example -o batch.yaml
 
 Global `compare.defaults` apply to all fields; per-field settings override.
 
+### 字面量字段值（v0.5+）
+
+比对字段每侧必须恰好指定 `<side>` 或 `<side>_literal` 之一：
+
+```yaml
+compare:
+  fields:
+    - {left: real_col, right: real_col}          # 常规：两侧都是列名
+    - {left_literal: "Azone", right: type}       # 左侧字面量字符串
+    - {left_literal: null, right: deleted_at}    # 左侧字面 null
+    - {left: name, right_literal: "prod"}        # 右侧字面量
+```
+
+规则：
+- 每侧的 `<side>` 和 `<side>_literal` **互斥**，`datacompare validate` 时报错
+- 字面量走与列值**完全相同**的 normalize 管线：`mode` / `parse_unit` /
+  `null_equivalents` / `decimal_places` 等全部生效
+- 字面量 `null` 用 YAML `null`（不是空串）
+- 不适用于 match keys（`match.keys` 只能是列名——字面量 join key 会造成
+  笛卡尔积无意义）
+- 常见用途：右侧库表某字段应为固定枚举值 / 应为 null / 应为固定数字
+
 ### Unit parsing
 
 For fields like `"30 TB"`, set `parse_unit: true` with `unit_category` (`storage` / `time` / `length` / `mass`) and `normalize_to` (target unit). Comparison then happens in normalized units.

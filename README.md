@@ -241,6 +241,25 @@ runtime:
   log_level: INFO
 ```
 
+#### 字面量字段（v0.5+）
+
+某一侧没有对应列，想把一个固定字符串（或 null）与另一侧列比对时，用
+`left_literal` / `right_literal`（与 `left` / `right` 互斥，每侧二选一）：
+
+```yaml
+compare:
+  fields:
+    # 断言右侧 zone 列对所有匹配行都等于 "Azone"
+    - {left_literal: "Azone", right: zone}
+    # 断言右侧 deleted_at 对所有匹配行都是 null
+    - {left_literal: null, right: deleted_at}
+    # 数值模式：字面量与列值走同一条转换管线
+    - {left_literal: "30", right: memory, mode: numeric, decimal_places: 2}
+```
+
+用 `null_equivalents` 里包含的字符串（比如 `"NULL"`）当字面量会被判为 None——
+真想传 null 就直接写 `left_literal: null`。
+
 ### 键值正则归一化（v0.3+）
 
 当左右两侧 key 字面不同但可通过正则映射到同一形式时（如左 `"ORD-2026-000123"` 对右 `"123"`），在 key 上配 `left_regex` / `right_regex`：

@@ -69,6 +69,14 @@ CLI (Typer)  →  Config (Pydantic + YAML)  →  DataSource 抽象
 - **`GaussDBConnection` 是联合类型**（`GaussDBAConnection | GaussDBTConnection`），不能作为构造器调用。分派用 `isinstance` 检查具体子类。
 - **KeyMapping 支持 `left_regex` / `right_regex`**（v0.3 起）：可选，跑 `re.fullmatch`，允许 0 或 1 个捕获组（≥2 组加载时报错）。有捕获组用 `group(1)`，否则用 `group(0)`。**严格失败**：任一行不匹配 → 抛 `KeyRegexMismatchError`（`ValueError` 子类）→ CLI exit 2。null 值透传不参与匹配。归属层：`normalize/keys.py`。运行位置：`normalize_side` 首行，在 `apply_column_mapping` 之前。
 - **批次模式 `tasks:`**（v0.4 起）：task.yaml 顶层出现 `tasks:` 键 → `load_task_or_batch` 返回 `BatchConfig`；`execute_batch` 顺序跑每个 sub-task。每个 sub-task 深度合并 defaults：dict 递归、list 替换、嵌套 dict 的 `type` 变化时 replace。`on_error: continue`（默认）或 `fail_fast`。CLI 退出码优先级 `2 > 10 > 1 > 0`。批次总日志 `batch.log` 只记元事件，sub-task 详细日志仍在各自目录。**加载阶段**（YAML 解析、defaults 合并冲突、sub-task 唯一性、每个 sub-task 完整 Pydantic 校验）**永远 fail-fast**，不受 `on_error` 影响。
+- **`FieldRule` 支持 `left_literal` / `right_literal`**（v0.5 起）：每侧必须恰好
+  指定 `<side>` 或 `<side>_literal` 之一。验证器用 `model_fields_set` 判定"是否
+  提供"，**不**用 `value is None`——`left_literal: null` 是合法的（表示"断言另
+  一侧为 null"），跟"未提供 left_literal"运行时值相同但语义不同。改这条约束前
+  想清楚会不会把 null 字面量误判为未设置。canonical 列名规则由
+  `normalize/columns.py::field_canonical_name` 集中管理：优先 `f.right`，其次
+  `f.left`（用于 right_literal 场景），最后 `"_literal"` 兜底；normalize 层和
+  engine 层都通过该 helper 拿列名，别在别处硬编码 `f.right`。
 
 ## 开发流程约定
 
