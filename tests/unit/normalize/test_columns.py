@@ -114,3 +114,16 @@ def test_apply_column_mapping_mixed_column_and_literal_fields():
     assert set(result.columns) == {"id", "amount", "zone"}
     assert result.iloc[0]["amount"] == "100"
     assert result.iloc[0]["zone"] == "Azone"
+
+
+def test_apply_column_mapping_left_side_with_right_literal_field():
+    """FieldRule(left='name', right_literal='prod') normalized with side='left':
+    canonical name falls back to f.left when f.right is None.
+    Regression guard against rename_map[src] = None (produces NaN-keyed column).
+    """
+    df = pd.DataFrame({"id": ["1", "2"], "name": ["alice", "bob"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left="name", right_literal="prod")]
+    result = apply_column_mapping(df, keys, fields, side="left")
+    assert list(result.columns) == ["id", "name"]
+    assert result["name"].tolist() == ["alice", "bob"]

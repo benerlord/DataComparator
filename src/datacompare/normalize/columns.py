@@ -69,8 +69,8 @@ def apply_column_mapping(
     for f in fields:
         src = getattr(f, side)
         if src is not None:
-            # Normal (non-literal) field: canonical name is always f.right.
-            rename_map[src] = f.right
+            # Normal (non-literal) field: canonical = f.right, or f.left if right side is literal.
+            rename_map[src] = f.right if f.right is not None else f.left
         else:
             # literal on this side; canonical name comes from the other side's column
             canonical = getattr(f, other)
