@@ -23,6 +23,65 @@
 2. **`FieldRule.left_regex` / `right_regex`**：镜像 `KeyMapping` 的 regex 语义，作用于 field 值
 3. **`apply_column_mapping` 重构**：允许同一源列被复制成多个 canonical 列（右侧 `name` 同时充当 `join_id` 和 `name`），regex 应用改到 rename+复制**之后**
 
+## 冲突场景与解决路径
+
+### 场景 A：左侧同名列冲突（本次主要驱动）
+
+**输入数据：**
+
+| 左侧 Excel |          |       | 右侧 GaussDB      |
+| ---------- | -------- | ----- | ----------------- |
+| id         | name     |       | name              |
+| 1          | Alice    |       | Alice@@1          |
+| 2          | Bob      |       | Bob@@2            |
+| 3          | Carol    |       | Carol@@3          |
+
+**用户意图：** 用左侧 `id` 与右侧 `name` 提取的后缀做 join，然后比对左侧 `name` 与右侧 `name` 提取的前缀是否一致。
+
+**若不加 alias 的老配置（会崩）：**
+
+```yaml
+match:
+  keys:
+    - {left: id, right: name, right_regex: '.*@@(.*)'}
+compare:
+  fields:
+    - {left: name, right: name}
+```
+
+崩溃路径：左侧 `apply_column_mapping` 里 rename_map 变成 `{"id": "name", "name": "name"}`，两个源列都被映射到 `"name"`，pandas 允许重名列存在但 `merge(on="name")` 抛 `column label 'name' is not unique`。这就是你之前调试遇到的报错。
+
+**加 alias 后正确配置：**
+
+```yaml
+match:
+  keys:
+    - {left: id, right: name, right_regex: '.*@@(.*)', alias: join_id}
+compare:
+  fields:
+    - {left: name, right: name, right_regex: '(.*)@@.*'}
+```
+
+归一化 trace：
+
+- 左侧 `apply_column_mapping` tasks：`[("id", "join_id"), ("name", "name")]` → 结果 `{join_id: [1,2,3], name: [Alice,Bob,Carol]}`
+- 右侧 `apply_column_mapping` tasks：`[("name", "join_id"), ("name", "name")]` → **同源 `name` 复制成两个 canonical 列** → 结果 `{join_id: [Alice@@1, Bob@@2, Carol@@3], name: [Alice@@1, Bob@@2, Carol@@3]}`
+- 右侧 key regex（strict）作用于 canonical `join_id`：`[1, 2, 3]`
+- 右侧 field regex（soft）作用于 canonical `name`：`[Alice, Bob, Carol]`
+- Merge 左右两侧于 `join_id` → 三行全 match，`name` 比对全一致，diff = 0
+
+### 场景 B：v0.5 已解决的"杂列冲突"（不重复处理）
+
+左侧有 `name` 列**但没有任何 field/key 引用它**的场景（v0.5 filter-before-rename 修复）已由既有测试
+`test_apply_column_mapping_left_col_named_like_right_key_no_collision` 覆盖。新实现（"逐列复制"）
+需保证该测试仍绿——杂列自然不会出现在 `tasks` 列表里，行为等价。
+
+### 场景 C：field canonical 撞名（配置错误，加载期拒绝）
+
+两个 field 用同一个 `f.right` 且都无 literal 时，canonical 冲突。这是配置错误，`config/loader.py`
+新增的 canonical 重复检查会 fail-fast 拦下，提示用户合并字段或调整命名。**不**通过 alias 解决
+（field 不加 alias，YAGNI）。
+
 ## YAML 表面
 
 ```yaml
