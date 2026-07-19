@@ -20,6 +20,14 @@ def field_canonical_name(f: FieldRule) -> str:
     return "_literal"
 
 
+def key_canonical_name(k: KeyMapping) -> str:
+    """Return the canonical column name for a key mapping.
+    Rule: k.alias if set, otherwise k.right. Used by apply_column_mapping,
+    normalize_side (for regex application), and engine merge (for key_cols).
+    All layers naming key columns must go through this helper."""
+    return k.alias if k.alias is not None else k.right
+
+
 @dataclass(frozen=True)
 class EffectiveRule:
     """FieldRule merged with defaults; no None values for behavioral flags."""

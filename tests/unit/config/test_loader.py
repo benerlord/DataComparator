@@ -183,3 +183,72 @@ tasks:
         load_task_or_batch(p, {})
     msg = str(exc.value)
     assert "sub_a" in msg and "sub_b" in msg
+
+
+class TestCanonicalDuplicateCheck:
+    def _write(self, tmp_path, content):
+        path = tmp_path / "task.yaml"
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def test_key_field_same_canonical_no_alias_rejected(self, tmp_path):
+        """key.right='name' and field.right='name' collide without alias."""
+        from datacompare.config.loader import load_task_or_batch
+        from datacompare.config.errors import ConfigError
+        import pytest
+        path = self._write(tmp_path, """
+name: t
+sources:
+  left: {type: excel, path: /tmp/x.xlsx}
+  right: {type: excel, path: /tmp/y.xlsx}
+match:
+  keys:
+    - {left: id, right: name}
+compare:
+  fields:
+    - {left: name, right: name}
+output: {dir: /tmp/out, formats: [json]}
+""")
+        with pytest.raises(ConfigError, match="canonical.*duplicate|duplicate.*canonical|重复"):
+            load_task_or_batch(path)
+
+    def test_key_field_alias_avoids_collision(self, tmp_path):
+        """Same shape as above but with alias — must load cleanly."""
+        from datacompare.config.loader import load_task_or_batch
+        path = self._write(tmp_path, """
+name: t
+sources:
+  left: {type: excel, path: /tmp/x.xlsx}
+  right: {type: excel, path: /tmp/y.xlsx}
+match:
+  keys:
+    - {left: id, right: name, alias: join_id}
+compare:
+  fields:
+    - {left: name, right: name}
+output: {dir: /tmp/out, formats: [json]}
+""")
+        cfg = load_task_or_batch(path)
+        assert cfg.match.keys[0].alias == "join_id"
+
+    def test_two_fields_same_canonical_rejected(self, tmp_path):
+        """Two fields with the same f.right — pure field/field collision."""
+        from datacompare.config.loader import load_task_or_batch
+        from datacompare.config.errors import ConfigError
+        import pytest
+        path = self._write(tmp_path, """
+name: t
+sources:
+  left: {type: excel, path: /tmp/x.xlsx}
+  right: {type: excel, path: /tmp/y.xlsx}
+match:
+  keys:
+    - {left: id, right: id}
+compare:
+  fields:
+    - {left: a, right: name}
+    - {left: b, right: name}
+output: {dir: /tmp/out, formats: [json]}
+""")
+        with pytest.raises(ConfigError, match="canonical.*duplicate|duplicate.*canonical|重复"):
+            load_task_or_batch(path)

@@ -127,3 +127,15 @@ def test_apply_column_mapping_left_side_with_right_literal_field():
     result = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["id", "name"]
     assert result["name"].tolist() == ["alice", "bob"]
+
+
+def test_key_canonical_name_no_alias_returns_right():
+    from datacompare.normalize.columns import key_canonical_name
+    k = KeyMapping(left="id", right="name")
+    assert key_canonical_name(k) == "name"
+
+
+def test_key_canonical_name_with_alias_returns_alias():
+    from datacompare.normalize.columns import key_canonical_name
+    k = KeyMapping(left="id", right="name", alias="join_id")
+    assert key_canonical_name(k) == "join_id"

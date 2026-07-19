@@ -102,12 +102,44 @@ def load_task_or_batch(path: Path, params: dict[str, str] | None = None) -> Task
     return _load_single(substituted)
 
 
+def _check_canonical_uniqueness(task: TaskConfig) -> None:
+    """Ensure key.canonical and field.canonical don't collide across the task.
+    Fail-fast at load time with a clear ConfigError instead of surfacing as a
+    pandas 'column label X is not unique' at merge time."""
+    from datacompare.normalize.columns import key_canonical_name, field_canonical_name
+    seen: dict[str, str] = {}
+    for k in task.match.keys:
+        canonical = key_canonical_name(k)
+        if canonical in seen:
+            raise ConfigError(
+                f"canonical column name '{canonical}' is duplicate: "
+                f"already used by {seen[canonical]}, now also by key "
+                f"(left={k.left!r}, right={k.right!r})",
+                path="match.keys",
+                suggestion="add 'alias' to one of the conflicting keys",
+            )
+        seen[canonical] = f"key (left={k.left!r}, right={k.right!r})"
+    for f in task.compare.fields:
+        canonical = field_canonical_name(f)
+        if canonical in seen:
+            raise ConfigError(
+                f"canonical column name '{canonical}' is duplicate: "
+                f"already used by {seen[canonical]}, now also by field "
+                f"(left={f.left!r}, right={f.right!r})",
+                path="compare.fields",
+                suggestion="add 'alias' to the conflicting key, or rename the field",
+            )
+        seen[canonical] = f"field (left={f.left!r}, right={f.right!r})"
+
+
 def _load_single(substituted: dict) -> TaskConfig:
     try:
-        return TaskConfig.model_validate(substituted)
+        cfg = TaskConfig.model_validate(substituted)
     except ValidationError as e:
         errors = "\n".join(f"  · {err['loc']}: {err['msg']}" for err in e.errors())
         raise ConfigError(f"task config validation failed:\n{errors}") from e
+    _check_canonical_uniqueness(cfg)
+    return cfg
 
 
 def _load_batch(substituted: dict) -> BatchConfig:
@@ -131,10 +163,13 @@ def _load_batch(substituted: dict) -> BatchConfig:
         sub_dict = {"name": sub.name, **(sub.model_extra or {})}
         merged = merge_sub_task(defaults_dict, sub_dict)
         try:
-            TaskConfig.model_validate(merged)
+            sub_cfg = TaskConfig.model_validate(merged)
+            _check_canonical_uniqueness(sub_cfg)
         except ValidationError as e:
             errs = "; ".join(f"{err['loc']}: {err['msg']}" for err in e.errors())
             per_sub_errors.append(f"  · [{sub.name}] {errs}")
+        except ConfigError as e:
+            per_sub_errors.append(f"  · [{sub.name}] {e}")
     if per_sub_errors:
         raise ConfigError(
             "batch sub-task validation failed:\n" + "\n".join(per_sub_errors)
