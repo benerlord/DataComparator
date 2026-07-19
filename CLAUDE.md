@@ -77,6 +77,28 @@ CLI (Typer)  →  Config (Pydantic + YAML)  →  DataSource 抽象
   `normalize/columns.py::field_canonical_name` 集中管理：优先 `f.right`，其次
   `f.left`（用于 right_literal 场景），最后 `"_literal"` 兜底；normalize 层和
   engine 层都通过该 helper 拿列名，别在别处硬编码 `f.right`。
+- **`KeyMapping` 支持 `alias`**（v0.6 起）：给 join key 自定义 canonical
+  列名，避免与 field canonical 撞车。canonical 命名规则由
+  `normalize/columns.py::key_canonical_name`（`alias` 优先，回退 `k.right`）
+  集中管理。engine 和 normalize 都通过这个 helper 拿 join key 列名，别
+  硬编码 `k.right`。**加载期 canonical 重复检查**在 `config/loader.py`
+  的 `_check_canonical_uniqueness`——任何 key/field canonical 撞车都在这里
+  fail-fast，不到 pandas 层才炸。
+- **`FieldRule` 支持 `left_regex` / `right_regex`**（v0.6 起）：语义与
+  `KeyMapping` 的 regex 一致（`re.fullmatch`、0/1 捕获组、None 透传），
+  **但失败模式相反**——key regex 不匹配 → 严格失败（`KeyRegexMismatchError`
+  → CLI exit 2）；field regex 不匹配 → **软失败**（`RegexError` sentinel，
+  engine 归 `DiffType.REGEX_ERROR`，其他行不影响）。原因：坏 key 让
+  整个 join 无意义，坏 field 只是一行数据问题。
+- **Regex 应用顺序**（v0.6 起）：`normalize_side` 先 `apply_column_mapping`
+  复制+改名，**再**跑 key regex（strict）和 field regex（soft），都作用在
+  canonical 列上。别改回 pre-rename——右侧同一个源列可能同时被 key
+  和 field 引用（如右侧 `name` = "prefix@@id" 双用），只有先复制再分别
+  跑 regex 才不互相污染。
+- **`apply_column_mapping` 是"tasks 列表"模型**（v0.6 起）：每个 key/field
+  贡献一个 `(source_col, canonical)` 对，同源列多次出现 = 复制成多个
+  canonical 列（不是 rename）。canonical 撞名靠 loader fail-fast 挡住，
+  运行时不用再查重。
 
 ## 开发流程约定
 

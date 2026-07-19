@@ -260,6 +260,42 @@ compare:
 用 `null_equivalents` 里包含的字符串（比如 `"NULL"`）当字面量会被判为 None——
 真想传 null 就直接写 `left_literal: null`。
 
+#### KeyMapping alias（v0.6+）
+
+当 `k.right` 与某个 `f.right` 撞名（左侧同源列作 join key 又作 compare
+field），加 `alias` 给 key canonical 起个别名避免冲突：
+
+```yaml
+match:
+  keys:
+    # 不加 alias → canonical = "name"，与下面 field 的 canonical 撞车 → 加载报错
+    # 加 alias → canonical = "join_id"，与 field canonical "name" 分开
+    - {left: id, right: name, right_regex: '.*@@(.*)', alias: join_id}
+
+compare:
+  fields:
+    - {left: name, right: name, right_regex: '(.*)@@.*'}
+```
+
+若 canonical 撞名且未加 alias，`datacompare validate` / `run` 在加载期
+fail-fast 报错，不会跑到 pandas merge 才炸。
+
+#### 字段级 regex（v0.6+）
+
+`FieldRule` 也可跑 regex 提取，语义与 `KeyMapping.left_regex/right_regex`
+一致（`re.fullmatch`、0/1 捕获组、None 透传）：
+
+```yaml
+compare:
+  fields:
+    # 从右侧 "prefix@@1234" 提取 prefix 部分再与左侧比对
+    - {left: name, right: name, right_regex: '(.*)@@.*'}
+```
+
+**失败语义差异**：key regex 不匹配 → 整个任务失败（exit 2）；
+field regex 不匹配 → 该行值变 `RegexError` sentinel、diff 报告归
+`regex_error` 类型，其他行照常。
+
 ### 键值正则归一化（v0.3+）
 
 当左右两侧 key 字面不同但可通过正则映射到同一形式时（如左 `"ORD-2026-000123"` 对右 `"123"`），在 key 上配 `left_regex` / `right_regex`：

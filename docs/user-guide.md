@@ -45,6 +45,60 @@ Rules:
 
 For case-insensitive or multiline matching use inline flags: `(?i)ord-\d+`.
 
+### Key alias for canonical name conflicts (v0.6+)
+
+Give a key a custom canonical column name via `alias` when `k.right` would
+collide with a field's canonical:
+
+```yaml
+match:
+  keys:
+    - left: id
+      right: name
+      right_regex: '.*@@(.*)'
+      alias: join_id     # key canonical becomes "join_id" instead of "name"
+```
+
+Rules:
+- `alias` is optional; when unset, canonical = `k.right` (unchanged behavior)
+- Any non-empty string is valid
+- If `key_canonical_name(k) == field_canonical_name(f)` for any pair in
+  the same task, loader raises `ConfigError` — add `alias` to disambiguate
+
+### Field regex normalization (v0.6+)
+
+Mirror of `KeyMapping.left_regex/right_regex` for compare fields:
+
+```yaml
+compare:
+  fields:
+    - left: name
+      right: name
+      right_regex: '(.*)@@.*'
+```
+
+Rules:
+- Uses Python `re.fullmatch`; the whole string must match
+- 0 or 1 capture group; with a capture group `group(1)` wins, otherwise
+  `group(0)`
+- 2 or more capture groups fail at `datacompare validate` time (use
+  non-capturing groups `(?:...)`)
+- `None` values pass through unchanged
+- **Failure semantics** (differs from key regex): row that fails to match
+  → value becomes `RegexError` sentinel, gets classified as
+  `regex_error` diff type in the report; other rows keep comparing.
+  This is deliberate: bad key kills the join, bad field is just a data
+  quality issue.
+
+### Source column duplication (v0.6+)
+
+If the same source column is referenced by both a key and a field
+(e.g. right's `name` is used as join key via alias AND as compare field),
+`apply_column_mapping` produces two canonical columns from that one source.
+This is what makes the combination "key regex + field regex" on the same
+column work — the source column is copied per canonical before regexes
+apply, so each canonical column gets its own regex without interfering.
+
 ### Batch mode (v0.4+): one YAML runs N comparisons
 
 When one Excel has dozens of sheets with different schemas, or you need to run
