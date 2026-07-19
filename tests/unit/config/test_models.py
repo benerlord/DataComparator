@@ -137,3 +137,64 @@ class TestFieldRuleLiterals:
         assert f.left_literal == "A"
         assert f.right_literal == "B"
         assert f.left is None and f.right is None
+
+
+class TestKeyMappingAlias:
+    def test_alias_default_none(self):
+        from datacompare.config.models import KeyMapping
+        k = KeyMapping(left="a", right="b")
+        assert k.alias is None
+
+    def test_alias_saved(self):
+        from datacompare.config.models import KeyMapping
+        k = KeyMapping(left="a", right="b", alias="join_id")
+        assert k.alias == "join_id"
+
+    def test_alias_with_regex(self):
+        from datacompare.config.models import KeyMapping
+        k = KeyMapping(left="id", right="name",
+                       right_regex=r".*@@(.*)", alias="join_id")
+        assert k.alias == "join_id"
+        assert k.right_regex == r".*@@(.*)"
+
+
+class TestFieldRuleRegex:
+    def test_left_regex_default_none(self):
+        from datacompare.config.models import FieldRule
+        f = FieldRule(left="a", right="b")
+        assert f.left_regex is None
+        assert f.right_regex is None
+
+    def test_left_regex_saved(self):
+        from datacompare.config.models import FieldRule
+        f = FieldRule(left="a", right="b", left_regex=r"(.*)@@.*")
+        assert f.left_regex == r"(.*)@@.*"
+
+    def test_right_regex_saved(self):
+        from datacompare.config.models import FieldRule
+        f = FieldRule(left="a", right="b", right_regex=r"(.*)@@.*")
+        assert f.right_regex == r"(.*)@@.*"
+
+    def test_regex_two_groups_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        from datacompare.config.models import FieldRule
+        with pytest.raises(ValidationError, match="capture groups"):
+            FieldRule(left="a", right="b", left_regex=r"(x)(y)")
+
+    def test_regex_invalid_pattern_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        from datacompare.config.models import FieldRule
+        with pytest.raises(ValidationError, match="invalid regex"):
+            FieldRule(left="a", right="b", right_regex=r"(unclosed")
+
+    def test_regex_zero_groups_ok(self):
+        from datacompare.config.models import FieldRule
+        f = FieldRule(left="a", right="b", left_regex=r"[a-z]+")
+        assert f.left_regex == r"[a-z]+"
+
+    def test_regex_one_group_ok(self):
+        from datacompare.config.models import FieldRule
+        f = FieldRule(left="a", right="b", left_regex=r"(.*)@@.*")
+        assert f.left_regex == r"(.*)@@.*"

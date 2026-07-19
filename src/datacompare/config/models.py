@@ -65,28 +65,35 @@ class APISourceConfig(SourceConfig):
 AnySourceConfig = ExcelSourceConfig | GaussDBSourceConfig | APISourceConfig
 
 
+def _validate_optional_regex(v: str | None) -> str | None:
+    """Shared field_validator body for both KeyMapping and FieldRule regex fields.
+    Accepts None, otherwise compiles the pattern and enforces 0 or 1 capture groups."""
+    if v is None:
+        return None
+    try:
+        pattern = re.compile(v)
+    except re.error as e:
+        raise ValueError(f"invalid regex {v!r}: {e}")
+    if pattern.groups > 1:
+        raise ValueError(
+            f"regex {v!r} has {pattern.groups} capture groups; "
+            "must have 0 or 1. Use non-capturing (?:...) for grouping without capture."
+        )
+    return v
+
+
 class KeyMapping(BaseModel):
     model_config = ConfigDict(extra="forbid")
     left: str
     right: str
     left_regex: str | None = None
     right_regex: str | None = None
+    alias: str | None = None
 
     @field_validator("left_regex", "right_regex")
     @classmethod
     def _validate_regex(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        try:
-            pattern = re.compile(v)
-        except re.error as e:
-            raise ValueError(f"invalid regex {v!r}: {e}")
-        if pattern.groups > 1:
-            raise ValueError(
-                f"regex {v!r} has {pattern.groups} capture groups; "
-                "must have 0 or 1. Use non-capturing (?:...) for grouping without capture."
-            )
-        return v
+        return _validate_optional_regex(v)
 
 
 class MatchConfig(BaseModel):
@@ -126,6 +133,13 @@ class FieldRule(BaseModel):
     null_equivalents: list[str] | None = None
     as_type: Literal["datetime", "int", "float", "string"] | None = None
     datetime_format: str | None = None
+    left_regex: str | None = None
+    right_regex: str | None = None
+
+    @field_validator("left_regex", "right_regex")
+    @classmethod
+    def _validate_regex(cls, v: str | None) -> str | None:
+        return _validate_optional_regex(v)
 
     @model_validator(mode="after")
     def _check_source_specifiers(self):
