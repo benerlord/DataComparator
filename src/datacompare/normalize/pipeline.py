@@ -4,7 +4,7 @@ from typing import Literal, Any
 import pandas as pd
 from datacompare.config.models import KeyMapping, CompareConfig
 from datacompare.engine.result import FieldError
-from .columns import apply_column_mapping, effective_rule, EffectiveRule
+from .columns import apply_column_mapping, effective_rule, EffectiveRule, field_canonical_name
 from .strings import normalize_string
 from .types import coerce_type, CoerceError
 from .units import parse_and_convert, UnitError
@@ -60,20 +60,9 @@ def normalize_side(
     df = apply_key_regex(df, keys, side)
     renamed = apply_column_mapping(df, keys, compare.fields, side=side)
     key_cols = [k.right for k in keys]
-
-    def _canonical(f):
-        # Mirrors apply_column_mapping's canonical-name rule: prefer f.right,
-        # fall back to f.left when right side is literal, then "_literal"
-        # sentinel when both sides are literal.
-        if f.right is not None:
-            return f.right
-        if f.left is not None:
-            return f.left
-        return "_literal"
-
     result = renamed.copy()
     for rule in compare.fields:
         eff = effective_rule(rule, compare.defaults)
-        col = _canonical(rule)
+        col = field_canonical_name(rule)
         result[col] = result[col].map(lambda v, r=eff: _process_value(v, r))
-    return result[key_cols + [_canonical(f) for f in compare.fields]]
+    return result[key_cols + [field_canonical_name(f) for f in compare.fields]]

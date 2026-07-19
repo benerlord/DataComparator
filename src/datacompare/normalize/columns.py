@@ -6,6 +6,20 @@ import pandas as pd
 from datacompare.config.models import KeyMapping, FieldRule, CompareDefaults
 
 
+def field_canonical_name(f: FieldRule) -> str:
+    """Return the canonical column name for a field regardless of literal status.
+    Rule: prefer f.right, fall back to f.left when right side is literal, then
+    "_literal" sentinel when both sides are literal (edge case, spec-allowed
+    but has no useful engine semantics). All layers that name field columns
+    (apply_column_mapping, normalize_side, engine merge/diff) must use this
+    helper so their names agree."""
+    if f.right is not None:
+        return f.right
+    if f.left is not None:
+        return f.left
+    return "_literal"
+
+
 @dataclass(frozen=True)
 class EffectiveRule:
     """FieldRule merged with defaults; no None values for behavioral flags."""
@@ -61,22 +75,16 @@ def apply_column_mapping(
     (e.g. `{left_literal: "X", right: "type"}` → canonical is "type"). When
     both sides are literal, canonical = f.right (or f.left as fallback).
     """
-    other = "right" if side == "left" else "left"
     rename_map: dict[str, str] = {}
     for k in keys:
         rename_map[getattr(k, side)] = k.right
     literal_fields: list[tuple[str, str | None]] = []  # (canonical_name, literal_value)
     for f in fields:
+        canonical = field_canonical_name(f)
         src = getattr(f, side)
         if src is not None:
-            # Normal (non-literal) field: canonical = f.right, or f.left if right side is literal.
-            rename_map[src] = f.right if f.right is not None else f.left
+            rename_map[src] = canonical
         else:
-            # literal on this side; canonical name comes from the other side's column
-            canonical = getattr(f, other)
-            if canonical is None:
-                # both sides literal — use f.right as name (arbitrary but stable)
-                canonical = f.right if f.right is not None else "_literal"
             literal_fields.append((canonical, getattr(f, f"{side}_literal")))
     missing = [src for src in rename_map if src not in df.columns]
     if missing:

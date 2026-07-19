@@ -15,6 +15,7 @@ from datacompare.normalize.types import CoerceError
 from datacompare.normalize.units import UnitError
 from .base import CompareEngine
 from .result import CompareResult, DiffType, FieldError
+from datacompare.normalize.columns import field_canonical_name
 
 
 def _values_equal(l: Any, r: Any) -> bool:
@@ -50,7 +51,7 @@ class DiskEngine(CompareEngine):
         started = time.perf_counter()
         con = duckdb.connect()   # reserved for future SQL JOIN optimization
         key_cols = [k.right for k in task.match.keys]
-        field_cols = [f.right for f in task.compare.fields]
+        field_cols = [field_canonical_name(f) for f in task.compare.fields]
 
         left_df = self._normalize_all(left, task, "left")
         right_df = self._normalize_all(right, task, "right")
@@ -77,15 +78,16 @@ class DiskEngine(CompareEngine):
         identical_mask = pd.Series(True, index=both.index)
 
         for f in task.compare.fields:
-            lcol = f"{f.right}__left"
-            rcol = f"{f.right}__right"
+            canonical = field_canonical_name(f)
+            lcol = f"{canonical}__left"
+            rcol = f"{canonical}__right"
             for idx, row in both.iterrows():
                 lv, rv = row[lcol], row[rcol]
                 if not _values_equal(lv, rv):
                     identical_mask.at[idx] = False
                     diff_records.append({
                         **{k: row[k] for k in key_cols},
-                        "field": f.right,
+                        "field": canonical,
                         "left_value": _display(lv),
                         "right_value": _display(rv),
                         "diff_type": _classify(lv, rv),
@@ -94,12 +96,12 @@ class DiskEngine(CompareEngine):
                     if isinstance(side_v, CoerceError):
                         errors.append(FieldError(
                             row_key={k: str(row[k]) for k in key_cols},
-                            field=f.right, kind="type_error", original=side_v.original,
+                            field=canonical, kind="type_error", original=side_v.original,
                         ))
                     elif isinstance(side_v, UnitError):
                         errors.append(FieldError(
                             row_key={k: str(row[k]) for k in key_cols},
-                            field=f.right, kind="unit_error", original=side_v.original,
+                            field=canonical, kind="unit_error", original=side_v.original,
                         ))
 
         matched_rows = int(len(both))

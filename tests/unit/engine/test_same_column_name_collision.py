@@ -78,3 +78,45 @@ def test_same_column_name_on_both_sides_produces_clean_diff_report(tmp_path):
     # Both same-named fields appear as diffs.
     diff_fields = set(result.diff_details["field"])
     assert diff_fields == {"ID", "amount"}
+
+
+def test_right_literal_field_end_to_end_via_engine(tmp_path):
+    """Regression: `right_literal` must be usable end-to-end through the
+    engine (not just normalize_side). Prior to the field_canonical_name
+    refactor, engine's `f.right` uses produced None-named columns."""
+    _xlsx(tmp_path / "left.xlsx", [
+        ["id", "status"],
+        ["r1", "active"],
+        ["r2", "inactive"],
+    ])
+    _xlsx(tmp_path / "right.xlsx", [
+        ["id"],
+        ["r1"],
+        ["r2"],
+    ])
+
+    task = TaskConfig(
+        name="right_literal_e2e",
+        sources={
+            "left": ExcelSourceConfig(path=str(tmp_path / "left.xlsx")),
+            "right": ExcelSourceConfig(path=str(tmp_path / "right.xlsx")),
+        },
+        match=MatchConfig(keys=[KeyMapping(left="id", right="id")]),
+        compare=CompareConfig(
+            defaults=CompareDefaults(),
+            fields=[FieldRule(left="status", right_literal="active")],
+        ),
+        output=OutputConfig(dir=str(tmp_path / "out"), formats=["json"]),
+    )
+    left = ExcelSource(task.sources["left"], name="left")
+    right = ExcelSource(task.sources["right"], name="right")
+    try:
+        result = InMemoryEngine().compare(left, right, task)
+    finally:
+        left.close(); right.close()
+
+    assert result.matched_rows == 2
+    assert result.identical_rows == 1  # r1 (status=active matches literal)
+    assert result.diff_rows == 1       # r2 (status=inactive != active)
+    diff_fields = set(result.diff_details["field"])
+    assert diff_fields == {"status"}   # canonical name from f.left, not None

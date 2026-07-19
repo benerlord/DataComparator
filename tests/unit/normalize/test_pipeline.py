@@ -110,13 +110,21 @@ def test_pipeline_left_literal_null_produces_none_column():
     assert result["deleted_at"].isna().all()
 
 
-def test_pipeline_left_literal_string_mode_broadcasts():
-    """Constant string flows through string-mode transforms."""
+def test_pipeline_left_literal_string_mode_applies_transforms():
+    """Constant string literal flows through string-mode transforms
+    (ignore_case, ignore_whitespace)."""
     df = pd.DataFrame({"id": ["1", "2", "3"]})
     keys = [KeyMapping(left="id", right="id")]
-    fields = [FieldRule(left_literal="Azone", right="zone", mode="string")]
+    fields = [FieldRule(
+        left_literal="  AZONE  ",
+        right="zone",
+        mode="string",
+        ignore_whitespace=True,
+        ignore_case=True,
+    )]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert result["zone"].tolist() == ["Azone", "Azone", "Azone"]
+    # ignore_whitespace strips, ignore_case casefolds
+    assert result["zone"].tolist() == ["azone", "azone", "azone"]
 
 
 def test_pipeline_right_literal_canonical_name_uses_left():
