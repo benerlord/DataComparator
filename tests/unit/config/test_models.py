@@ -129,3 +129,11 @@ class TestFieldRuleLiterals:
     def test_both_right_and_right_literal_raises(self):
         with pytest.raises(ValidationError, match="cannot specify both 'right'"):
             FieldRule(left="a", right="b", right_literal="Y")
+
+    def test_both_sides_literal_ok(self):
+        # Spec explicitly allows both-sides-literal per YAGNI (docs/superpowers/specs/2026-07-20-literal-field-values-design.md).
+        # Guards against a future "defensive" validator being added.
+        f = FieldRule(left_literal="A", right_literal="B")
+        assert f.left_literal == "A"
+        assert f.right_literal == "B"
+        assert f.left is None and f.right is None
