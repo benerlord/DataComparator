@@ -139,3 +139,38 @@ def test_key_canonical_name_with_alias_returns_alias():
     from datacompare.normalize.columns import key_canonical_name
     k = KeyMapping(left="id", right="name", alias="join_id")
     assert key_canonical_name(k) == "join_id"
+
+
+def test_apply_column_mapping_key_alias_uses_alias_as_canonical():
+    """Key with alias — canonical name comes from alias, not k.right."""
+    df = pd.DataFrame({"id": ["1", "2"]})
+    keys = [KeyMapping(left="id", right="name", alias="join_id")]
+    fields = []
+    result = apply_column_mapping(df, keys, fields, side="left")
+    assert list(result.columns) == ["join_id"]
+    assert result["join_id"].tolist() == ["1", "2"]
+
+
+def test_apply_column_mapping_same_source_column_duplicated_for_key_and_field():
+    """Right side: 'name' column used by BOTH key (canonical join_id via alias)
+    AND field (canonical name). Both canonical columns must exist and contain
+    the SAME source values (regex not applied here — that's a later step)."""
+    df = pd.DataFrame({"name": ["Alice@@1", "Bob@@2"]})
+    keys = [KeyMapping(left="id", right="name", alias="join_id")]
+    fields = [FieldRule(left="name", right="name")]
+    result = apply_column_mapping(df, keys, fields, side="right")
+    assert set(result.columns) == {"join_id", "name"}
+    assert result["join_id"].tolist() == ["Alice@@1", "Bob@@2"]
+    assert result["name"].tolist() == ["Alice@@1", "Bob@@2"]
+
+
+def test_apply_column_mapping_left_side_with_key_alias_and_stray_col():
+    """Left has 'id' and 'name'; key {left: id, right: name, alias: join_id};
+    field {left: name, right: name}. Both must survive with correct values."""
+    df = pd.DataFrame({"id": ["1", "2"], "name": ["Alice", "Bob"]})
+    keys = [KeyMapping(left="id", right="name", alias="join_id")]
+    fields = [FieldRule(left="name", right="name")]
+    result = apply_column_mapping(df, keys, fields, side="left")
+    assert set(result.columns) == {"join_id", "name"}
+    assert result["join_id"].tolist() == ["1", "2"]
+    assert result["name"].tolist() == ["Alice", "Bob"]

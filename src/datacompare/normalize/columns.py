@@ -76,25 +76,35 @@ def apply_column_mapping(
     fields: list[FieldRule],
     side: Literal["left", "right"],
 ) -> pd.DataFrame:
-    """Rename columns to canonical names; drop unmapped columns; inject literal
-    fields as constant-valued columns.
+    """Build a new DataFrame with canonical-named columns.
 
-    Canonical name for a literal field = the non-literal side's column name
-    (e.g. `{left_literal: "X", right: "type"}` → canonical is "type"). When
-    both sides are literal, canonical = f.right (or f.left as fallback).
+    Task-list model (v0.6+): each key/field produces a (source_col, canonical)
+    pair. A source column may appear in multiple pairs — it gets copied under
+    each canonical name (needed when a column serves as both join key and
+    compare field on one side, e.g. right's 'name' -> both 'join_id' and
+    'name'). Literal fields (no source column on this side) are injected as
+    scalar columns.
+
+    Canonical rules:
+      - key: key_canonical_name(k) — k.alias if set, else k.right
+      - field: field_canonical_name(f) — f.right, else f.left, else '_literal'
+
+    Canonical duplicates across the task are prevented at load time by loader's
+    canonical-uniqueness check (_check_canonical_uniqueness), so no in-loop
+    collision guard is needed here.
     """
-    rename_map: dict[str, str] = {}
+    tasks: list[tuple[str, str]] = []                  # (source_col, canonical)
+    literal_fields: list[tuple[str, str | None]] = []  # (canonical, literal_value)
     for k in keys:
-        rename_map[getattr(k, side)] = k.right
-    literal_fields: list[tuple[str, str | None]] = []  # (canonical_name, literal_value)
+        tasks.append((getattr(k, side), key_canonical_name(k)))
     for f in fields:
-        canonical = field_canonical_name(f)
         src = getattr(f, side)
+        canonical = field_canonical_name(f)
         if src is not None:
-            rename_map[src] = canonical
+            tasks.append((src, canonical))
         else:
             literal_fields.append((canonical, getattr(f, f"{side}_literal")))
-    missing = [src for src in rename_map if src not in df.columns]
+    missing = [src for src, _ in tasks if src not in df.columns]
     if missing:
         from datacompare.config.errors import ConfigError
         raise ConfigError(
@@ -102,12 +112,12 @@ def apply_column_mapping(
             path=f"sources.{side}",
             suggestion=f"available columns: {list(df.columns)}",
         )
-    # Filter to mapped source columns FIRST, then rename. Prevents an unmapped
-    # source column whose name equals a target name (e.g. left has stray 'name'
-    # while id→name) from colliding with the renamed column.
-    src_cols = list(rename_map.keys())
-    result = df[src_cols].rename(columns=rename_map)
-    # Inject literal fields as constant columns (pandas broadcasts a scalar).
+    # Copy each (src -> canonical) pair. Same source referenced multiple times
+    # produces multiple canonical columns. Uses .values to sever pandas view
+    # relationships so downstream mutations don't reach back into df.
+    result = pd.DataFrame(index=df.index)
+    for src, canonical in tasks:
+        result[canonical] = df[src].values
     for canonical, literal_val in literal_fields:
         result[canonical] = literal_val
     return result
