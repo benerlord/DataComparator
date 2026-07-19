@@ -8,9 +8,10 @@ from datacompare.sources.base import DataSource
 from datacompare.normalize.pipeline import normalize_side
 from datacompare.normalize.types import CoerceError
 from datacompare.normalize.units import UnitError
+from datacompare.normalize.regex_errors import RegexError
 from .base import CompareEngine
 from .result import CompareResult, DiffType, FieldError
-from datacompare.normalize.columns import field_canonical_name
+from datacompare.normalize.columns import field_canonical_name, key_canonical_name
 
 
 def _values_equal(l: Any, r: Any) -> bool:
@@ -18,7 +19,7 @@ def _values_equal(l: Any, r: Any) -> bool:
         return True
     if l is None or r is None:
         return False
-    if isinstance(l, (CoerceError, UnitError)) or isinstance(r, (CoerceError, UnitError)):
+    if isinstance(l, (CoerceError, UnitError, RegexError)) or isinstance(r, (CoerceError, UnitError, RegexError)):
         return False
     return l == r
 
@@ -30,15 +31,15 @@ def _classify(l: Any, r: Any) -> str:
         return DiffType.TYPE_ERROR.value
     if isinstance(l, UnitError) or isinstance(r, UnitError):
         return DiffType.UNIT_ERROR.value
+    if isinstance(l, RegexError) or isinstance(r, RegexError):
+        return DiffType.REGEX_ERROR.value
     return DiffType.VALUE_MISMATCH.value
 
 
 def _display(v: Any) -> str:
     if v is None:
         return ""
-    if isinstance(v, CoerceError):
-        return v.original
-    if isinstance(v, UnitError):
+    if isinstance(v, (CoerceError, UnitError, RegexError)):
         return v.original
     return str(v)
 
@@ -54,7 +55,7 @@ class InMemoryEngine(CompareEngine):
         left_total = len(left_raw)
         right_total = len(right_raw)
 
-        key_cols = [k.right for k in task.match.keys]
+        key_cols = [key_canonical_name(k) for k in task.match.keys]
         field_cols = [field_canonical_name(f) for f in task.compare.fields]
 
         ldf = normalize_side(left_raw, task.match.keys, task.compare, side="left")
@@ -96,14 +97,24 @@ class InMemoryEngine(CompareEngine):
                         "right_value": _display(rv),
                         "diff_type": _classify(lv, rv),
                     })
-                if isinstance(lv, (CoerceError, UnitError)):
-                    kind = "type_error" if isinstance(lv, CoerceError) else "unit_error"
+                if isinstance(lv, (CoerceError, UnitError, RegexError)):
+                    if isinstance(lv, CoerceError):
+                        kind = "type_error"
+                    elif isinstance(lv, UnitError):
+                        kind = "unit_error"
+                    else:
+                        kind = "regex_error"
                     errors.append(FieldError(
                         row_key={k: str(row[k]) for k in key_cols},
                         field=canonical, kind=kind, original=lv.original,
                     ))
-                if isinstance(rv, (CoerceError, UnitError)):
-                    kind = "type_error" if isinstance(rv, CoerceError) else "unit_error"
+                if isinstance(rv, (CoerceError, UnitError, RegexError)):
+                    if isinstance(rv, CoerceError):
+                        kind = "type_error"
+                    elif isinstance(rv, UnitError):
+                        kind = "unit_error"
+                    else:
+                        kind = "regex_error"
                     errors.append(FieldError(
                         row_key={k: str(row[k]) for k in key_cols},
                         field=canonical, kind=kind, original=rv.original,

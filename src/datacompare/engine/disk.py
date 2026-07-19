@@ -13,9 +13,10 @@ from datacompare.sources.base import DataSource
 from datacompare.normalize.pipeline import normalize_side
 from datacompare.normalize.types import CoerceError
 from datacompare.normalize.units import UnitError
+from datacompare.normalize.regex_errors import RegexError
 from .base import CompareEngine
 from .result import CompareResult, DiffType, FieldError
-from datacompare.normalize.columns import field_canonical_name
+from datacompare.normalize.columns import field_canonical_name, key_canonical_name
 
 
 def _values_equal(l: Any, r: Any) -> bool:
@@ -23,7 +24,7 @@ def _values_equal(l: Any, r: Any) -> bool:
         return True
     if l is None or r is None:
         return False
-    if isinstance(l, (CoerceError, UnitError)) or isinstance(r, (CoerceError, UnitError)):
+    if isinstance(l, (CoerceError, UnitError, RegexError)) or isinstance(r, (CoerceError, UnitError, RegexError)):
         return False
     return l == r
 
@@ -35,13 +36,15 @@ def _classify(l: Any, r: Any) -> str:
         return DiffType.TYPE_ERROR.value
     if isinstance(l, UnitError) or isinstance(r, UnitError):
         return DiffType.UNIT_ERROR.value
+    if isinstance(l, RegexError) or isinstance(r, RegexError):
+        return DiffType.REGEX_ERROR.value
     return DiffType.VALUE_MISMATCH.value
 
 
 def _display(v: Any) -> str:
     if v is None:
         return ""
-    if isinstance(v, (CoerceError, UnitError)):
+    if isinstance(v, (CoerceError, UnitError, RegexError)):
         return v.original
     return str(v)
 
@@ -50,7 +53,7 @@ class DiskEngine(CompareEngine):
     def compare(self, left: DataSource, right: DataSource, task: TaskConfig) -> CompareResult:
         started = time.perf_counter()
         con = duckdb.connect()   # reserved for future SQL JOIN optimization
-        key_cols = [k.right for k in task.match.keys]
+        key_cols = [key_canonical_name(k) for k in task.match.keys]
         field_cols = [field_canonical_name(f) for f in task.compare.fields]
 
         left_df = self._normalize_all(left, task, "left")
@@ -102,6 +105,11 @@ class DiskEngine(CompareEngine):
                         errors.append(FieldError(
                             row_key={k: str(row[k]) for k in key_cols},
                             field=canonical, kind="unit_error", original=side_v.original,
+                        ))
+                    elif isinstance(side_v, RegexError):
+                        errors.append(FieldError(
+                            row_key={k: str(row[k]) for k in key_cols},
+                            field=canonical, kind="regex_error", original=side_v.original,
                         ))
 
         matched_rows = int(len(both))

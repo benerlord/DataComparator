@@ -120,3 +120,96 @@ def test_right_literal_field_end_to_end_via_engine(tmp_path):
     assert result.diff_rows == 1       # r2 (status=inactive != active)
     diff_fields = set(result.diff_details["field"])
     assert diff_fields == {"status"}   # canonical name from f.left, not None
+
+
+def test_key_alias_and_field_regex_end_to_end(tmp_path):
+    """End-to-end regression: right's 'name' column serves as both join key
+    (regex to extract ID suffix, alias=join_id) and compare field (regex to
+    extract name prefix). Left has real 'id' and 'name' columns."""
+    _xlsx(tmp_path / "left.xlsx", [
+        ["id", "name"],
+        ["1", "Alice"],
+        ["2", "Bob"],
+        ["3", "Carol"],
+    ])
+    _xlsx(tmp_path / "right.xlsx", [
+        ["name"],
+        ["Alice@@1"],
+        ["Bob@@2"],
+        ["Different@@3"],
+    ])
+
+    task = TaskConfig(
+        name="key_alias_field_regex_e2e",
+        sources={
+            "left": ExcelSourceConfig(path=str(tmp_path / "left.xlsx")),
+            "right": ExcelSourceConfig(path=str(tmp_path / "right.xlsx")),
+        },
+        match=MatchConfig(keys=[KeyMapping(
+            left="id", right="name",
+            right_regex=r".*@@(.*)", alias="join_id",
+        )]),
+        compare=CompareConfig(
+            defaults=CompareDefaults(),
+            fields=[FieldRule(
+                left="name", right="name",
+                right_regex=r"(.*)@@.*",
+            )],
+        ),
+        output=OutputConfig(dir=str(tmp_path / "out"), formats=["json"]),
+    )
+    left = ExcelSource(task.sources["left"], name="left")
+    right = ExcelSource(task.sources["right"], name="right")
+    try:
+        result = InMemoryEngine().compare(left, right, task)
+    finally:
+        left.close(); right.close()
+
+    assert result.matched_rows == 3
+    assert result.identical_rows == 2
+    assert result.diff_rows == 1
+    diff_fields = set(result.diff_details["field"])
+    assert diff_fields == {"name"}
+
+
+def test_field_regex_mismatch_reports_as_regex_error(tmp_path):
+    """Row 1: left='A', right='A@@X' → regex extract 'A' → identical.
+    Row 2: left='B', right='no_at_at' → regex mismatch → RegexError → diff (regex_error).
+    """
+    _xlsx(tmp_path / "left.xlsx", [
+        ["id", "code"],
+        ["1", "A"],
+        ["2", "B"],
+    ])
+    _xlsx(tmp_path / "right.xlsx", [
+        ["id", "code"],
+        ["1", "A@@X"],
+        ["2", "no_at_at"],
+    ])
+
+    task = TaskConfig(
+        name="field_regex_soft_fail_e2e",
+        sources={
+            "left": ExcelSourceConfig(path=str(tmp_path / "left.xlsx")),
+            "right": ExcelSourceConfig(path=str(tmp_path / "right.xlsx")),
+        },
+        match=MatchConfig(keys=[KeyMapping(left="id", right="id")]),
+        compare=CompareConfig(
+            defaults=CompareDefaults(),
+            fields=[FieldRule(left="code", right="code",
+                              right_regex=r"(.*)@@.*")],
+        ),
+        output=OutputConfig(dir=str(tmp_path / "out"), formats=["json"]),
+    )
+    left = ExcelSource(task.sources["left"], name="left")
+    right = ExcelSource(task.sources["right"], name="right")
+    try:
+        result = InMemoryEngine().compare(left, right, task)
+    finally:
+        left.close(); right.close()
+
+    assert result.matched_rows == 2
+    assert result.identical_rows == 1
+    assert result.diff_rows == 1
+    diff_types = set(result.diff_details["diff_type"])
+    assert "regex_error" in diff_types
