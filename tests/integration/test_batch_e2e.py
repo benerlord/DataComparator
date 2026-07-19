@@ -184,3 +184,52 @@ tasks:
     assert result.exit_code == 0, result.output
     report = json.loads((tmp_path / "reports" / "sheet_a_vs_sheet_b" / "report.json").read_text(encoding="utf-8"))
     assert report["summary"]["matched"] == 2
+
+
+def test_batch_scenario_j_left_literal_asserts_right_column_value(tmp_path):
+    """Scenario J: sub-task uses `left_literal` to assert that a right-side
+    column always equals a fixed value for every matched row.
+
+    Left Excel has only `id` column. Right Excel has `id` and `zone` columns
+    where zone varies per row. The compare field `{left_literal: 'Azone',
+    right: 'zone'}` should produce diffs for exactly the rows where right's
+    `zone != 'Azone'`.
+    """
+    _make_xlsx(tmp_path / "left.xlsx", {
+        "IDS": [["id"], ["r1"], ["r2"], ["r3"]],
+    })
+    _make_xlsx(tmp_path / "right.xlsx", {
+        "ZONES": [
+            ["id", "zone"],
+            ["r1", "Azone"],   # matches literal
+            ["r2", "Bzone"],   # diff
+            ["r3", "Azone"],   # matches
+        ],
+    })
+    task = tmp_path / "batch.yaml"
+    task.write_text(f"""
+name: literal_assertion
+sources:
+  left: {{type: excel, path: {tmp_path}/left.xlsx}}
+output:
+  dir: {tmp_path}/reports
+  formats: [json]
+tasks:
+  - name: assert_zone_is_Azone
+    sources:
+      left: {{sheets: [{{name: IDS}}]}}
+      right: {{type: excel, path: {tmp_path}/right.xlsx, sheets: [{{name: ZONES}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare:
+      fields:
+        - {{left_literal: "Azone", right: zone}}
+""", encoding="utf-8")
+
+    result = runner.invoke(app, ["run", str(task), "--connections", str(tmp_path / "none.yaml")])
+    assert result.exit_code == 0, result.output
+    report = json.loads(
+        (tmp_path / "reports" / "assert_zone_is_Azone" / "report.json").read_text(encoding="utf-8")
+    )
+    assert report["summary"]["matched"] == 3
+    assert report["summary"]["identical"] == 2
+    assert report["summary"]["diff"] == 1
