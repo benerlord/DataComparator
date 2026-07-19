@@ -56,14 +56,24 @@ def normalize_side(
     compare: CompareConfig,
     side: Literal["left", "right"],
 ) -> pd.DataFrame:
-    """Apply key regex -> rename -> filter -> per-field transform."""
+    """Apply key regex -> rename+inject -> per-field transform."""
     df = apply_key_regex(df, keys, side)
     renamed = apply_column_mapping(df, keys, compare.fields, side=side)
     key_cols = [k.right for k in keys]
 
+    def _canonical(f):
+        # Mirrors apply_column_mapping's canonical-name rule: prefer f.right,
+        # fall back to f.left when right side is literal, then "_literal"
+        # sentinel when both sides are literal.
+        if f.right is not None:
+            return f.right
+        if f.left is not None:
+            return f.left
+        return "_literal"
+
     result = renamed.copy()
     for rule in compare.fields:
         eff = effective_rule(rule, compare.defaults)
-        col = eff.right
+        col = _canonical(rule)
         result[col] = result[col].map(lambda v, r=eff: _process_value(v, r))
-    return result[key_cols + [f.right for f in compare.fields]]
+    return result[key_cols + [_canonical(f) for f in compare.fields]]

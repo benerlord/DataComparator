@@ -9,8 +9,8 @@ from datacompare.config.models import KeyMapping, FieldRule, CompareDefaults
 @dataclass(frozen=True)
 class EffectiveRule:
     """FieldRule merged with defaults; no None values for behavioral flags."""
-    left: str
-    right: str
+    left: str | None
+    right: str | None
     mode: str
     decimal_places: int | None
     parse_unit: bool
