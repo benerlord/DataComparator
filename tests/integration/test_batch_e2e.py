@@ -233,3 +233,47 @@ tasks:
     assert report["summary"]["matched"] == 3
     assert report["summary"]["identical"] == 2
     assert report["summary"]["diff"] == 1
+
+
+def test_batch_scenario_k_key_alias_and_field_regex(tmp_path):
+    """Scenario K: batch sub-task uses key alias + field regex to compare
+    a compound right-side column against split left-side columns.
+
+    Left: {id, name}. Right: {name} = "prefix@@id" pattern.
+    Join on right's regex-extracted ID via alias=join_id (avoids name collision).
+    Compare left.name against right.name regex-extracted prefix."""
+    _make_xlsx(tmp_path / "left.xlsx", {
+        "USERS": [["id", "name"], ["1", "Alice"], ["2", "Bob"], ["3", "Carol"]],
+    })
+    _make_xlsx(tmp_path / "right.xlsx", {
+        "COMPOUND": [["name"], ["Alice@@1"], ["Diff@@2"], ["Carol@@3"]],
+    })
+    task = tmp_path / "batch.yaml"
+    task.write_text(f"""
+name: alias_and_field_regex_batch
+sources:
+  left: {{type: excel, path: {tmp_path}/left.xlsx}}
+output:
+  dir: {tmp_path}/reports
+  formats: [json]
+tasks:
+  - name: users_vs_compound
+    sources:
+      left: {{sheets: [{{name: USERS}}]}}
+      right: {{type: excel, path: {tmp_path}/right.xlsx, sheets: [{{name: COMPOUND}}]}}
+    match:
+      keys:
+        - {{left: id, right: name, right_regex: '.*@@(.*)', alias: join_id}}
+    compare:
+      fields:
+        - {{left: name, right: name, right_regex: '(.*)@@.*'}}
+""", encoding="utf-8")
+
+    result = runner.invoke(app, ["run", str(task), "--connections", str(tmp_path / "none.yaml")])
+    assert result.exit_code == 0, result.output
+    report = json.loads(
+        (tmp_path / "reports" / "users_vs_compound" / "report.json").read_text(encoding="utf-8")
+    )
+    assert report["summary"]["matched"] == 3
+    assert report["summary"]["identical"] == 2
+    assert report["summary"]["diff"] == 1
