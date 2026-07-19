@@ -1,81 +1,61 @@
-# Literal Field Values — Design Spec
+# 字面量字段值设计规范
 
-**Date:** 2026-07-20
-**Status:** Approved for implementation
-**Scope:** One PR / single implementation plan
+**日期：** 2026-07-20
+**状态：** 已批准，进入实现
+**范围：** 单 PR / 单实现计划
 
-## Problem
+## 问题背景
 
-When comparing two sources, users sometimes need a compare field where one
-side has no matching column but should be treated as a fixed constant
-against a real column on the other side. Real scenario surfaced in batch
-mode: an Excel sheet has no `zone` column, but the corresponding GaussDB
-table has a `type` column that should always equal `"Azone"` for matched
-rows. Today the user must either preprocess the Excel or skip the check.
+比对两个数据源时，用户偶尔会遇到这种情况：某个比对字段在一侧没有对应列，但仍需与另一侧的真实列做比对，且该"缺失侧"应被视为固定常量。批次模式下已出现真实场景：某 Excel sheet 页没有 `zone` 列，但对应的 GaussDB 表有 `type` 列，且期望所有匹配行的 `type` 都等于字符串 `"Azone"`。当前用户只能预处理 Excel 或跳过这项校验。
 
-## Solution Overview
+## 方案概览
 
-Add two optional Pydantic fields to `FieldRule`: `left_literal` and
-`right_literal`. Each holds a `str | None` value that is broadcast to
-every row on that side during normalize, replacing what would otherwise
-be a source-column lookup. The literal flows through the standard
-per-field transform pipeline (string preprocess → unit → type coerce →
-decimal round), so `mode: numeric` etc. work uniformly.
+在 `FieldRule` 上新增两个可选 Pydantic 字段：`left_literal` 和 `right_literal`。每个持有 `str | None` 值，在 normalize 阶段被广播到该侧的每一行，取代原本的"从源列取值"行为。字面量走完整的每字段转换管线（string 预处理 → unit 换算 → 类型强转 → 精度舍入），所以 `mode: numeric` 等配置对字面量同样生效。
 
-Only compare fields (`FieldRule`) support literals. Match keys
-(`KeyMapping`) do not — a literal join key would create a cartesian
-product and has no meaningful semantics.
+**仅** 比对字段（`FieldRule`）支持字面量。匹配键（`KeyMapping`）**不** 支持——字面量 join key 会造成笛卡尔积，语义无意义。
 
-## YAML Surface
+## YAML 表面
 
 ```yaml
 compare:
   fields:
-    # Existing (unchanged behavior)
+    # 现有写法（行为不变）
     - {left: real_col, right: real_col}
 
-    # NEW: left is a constant string
+    # 新：左侧为常量字符串
     - {left_literal: "Azone", right: type}
 
-    # NEW: left is literal null (assert right column is null for matched rows)
+    # 新：左侧为字面 null（断言匹配行的右侧列为 null）
     - {left_literal: null, right: deleted_at}
 
-    # NEW: right is a constant (symmetric)
+    # 新：右侧为常量（对称支持）
     - {left: name, right_literal: "prod"}
 
-    # NEW: literal + numeric mode → literal coerced through same pipeline
+    # 新：字面量 + numeric 模式 → 字面量走同一条转换管线
     - {left_literal: "30", right: memory,
        mode: numeric, decimal_places: 2}
 ```
 
-## Validation Rules
+## 校验规则
 
-On `FieldRule` via `@model_validator(mode="after")`:
+在 `FieldRule` 上加 `@model_validator(mode="after")`：
 
-- For each side (`left`, `right`) **exactly one of** `<side>` or
-  `<side>_literal` must be provided. Both provided → error. Neither
-  provided → error.
-- "Provided" is judged by Pydantic v2's `model_fields_set`, **not** by
-  checking `value is None`. This lets `left_literal: null` (explicit
-  YAML `null`) be distinguishable from "left_literal not written at
-  all". Both yield `.left_literal == None` at runtime, but the former is
-  in `model_fields_set` and the latter isn't.
-- Both sides being literal (`{left_literal: "A", right_literal: "A"}`)
-  is allowed. It's pointless — always matches or always differs — but
-  YAGNI on that validation.
+- 每一侧（`left`、`right`）**必须恰好** 指定 `<side>` 或 `<side>_literal` 其中之一。两者都给 → 报错。都不给 → 报错。
+- 判定"是否指定"用 Pydantic v2 的 `model_fields_set`，**不** 用 `value is None` 判定。原因：`left_literal: null`（YAML 显式 null）需要与"根本没写 left_literal"区分。两种情况下 `.left_literal` 的运行时值都是 `None`，但前者在 `model_fields_set` 里、后者不在。
+- 允许两侧同时字面量（`{left_literal: "A", right_literal: "A"}`）。这种写法要么永远相等、要么永远不等，本身没意义，但按 YAGNI 原则不加校验。
 
-## Model Changes
+## 模型改动
 
-`src/datacompare/config/models.py::FieldRule`:
+`src/datacompare/config/models.py::FieldRule`：
 
 ```python
 class FieldRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    left: str | None = None          # was: str
-    right: str | None = None         # was: str
-    left_literal: str | None = None  # NEW
-    right_literal: str | None = None # NEW
-    # ... existing mode / decimal_places / ... unchanged
+    left: str | None = None          # 原：str
+    right: str | None = None         # 原：str
+    left_literal: str | None = None  # 新增
+    right_literal: str | None = None # 新增
+    # ... 其余 mode / decimal_places / ... 保持原样
 
     @model_validator(mode="after")
     def _check_source_specifiers(self):
@@ -93,13 +73,11 @@ class FieldRule(BaseModel):
         return self
 ```
 
-**Backward compatibility:** any existing `{left: "col", right: "col"}`
-still passes (both `left` and `right` in `model_fields_set`, neither
-`_literal` set). No behavior change for existing configs.
+**向后兼容：** 现有任何 `{left: "col", right: "col"}` 都能通过（`left` 和 `right` 都在 `model_fields_set` 里，两个 `_literal` 都未设）。老配置行为不变。
 
-## Pipeline Changes
+## 管线改动
 
-`src/datacompare/normalize/columns.py::apply_column_mapping`:
+`src/datacompare/normalize/columns.py::apply_column_mapping`：
 
 ```python
 def apply_column_mapping(df, keys, fields, side):
@@ -107,98 +85,73 @@ def apply_column_mapping(df, keys, fields, side):
     for k in keys:
         rename_map[getattr(k, side)] = k.right
     for f in fields:
-        src = getattr(f, side)  # may be None for literal fields
+        src = getattr(f, side)  # 字面量字段这里为 None
         if src is not None:
             rename_map[src] = f.right
 
     missing = [src for src in rename_map if src not in df.columns]
     if missing:
-        raise ConfigError(...)  # unchanged
+        raise ConfigError(...)  # 保持不变
 
     src_cols = list(rename_map.keys())
     result = df[src_cols].rename(columns=rename_map)
 
-    # NEW: inject literal columns as constants
+    # 新增：把字面量字段作为常量列注入
     for f in fields:
         if getattr(f, side) is None:
             literal_val = getattr(f, f"{side}_literal")
-            result[f.right] = literal_val  # pandas broadcasts scalar
+            result[f.right] = literal_val  # pandas 广播标量
 
     return result
 ```
 
-**Zero-row DataFrame:** `result[f.right] = "Azone"` on an empty
-DataFrame creates an empty column of dtype object. No crash. Downstream
-merge produces no matched rows, which is correct.
+**零行 DataFrame：** 空 DataFrame 上做 `result[f.right] = "Azone"` 会得到 object dtype 的空列，不会崩。下游 merge 得零匹配行，符合预期。
 
-**Pipeline injection point:** `apply_column_mapping` is the only
-touched function. `normalize_side` in `pipeline.py` is unchanged —
-the literal column, once injected, is indistinguishable from a real
-column and flows through `_process_value` per the field's rule
-(`mode`, `null_equivalents`, `parse_unit`, etc. all apply naturally).
+**管线注入位置：** 只动 `apply_column_mapping` 一个函数。`pipeline.py` 里的 `normalize_side` 不用改——字面量列注入后跟真实列完全等价，会自然流经 `_process_value`，字段规则里的 `mode` / `null_equivalents` / `parse_unit` 等全部按原有逻辑生效。
 
-**Effect of `null_equivalents`:** if user writes
-`left_literal: "NULL"` and `null_equivalents` contains `"NULL"`, the
-literal becomes `None`. Users who genuinely want None should write
-`left_literal: null`.
+**`null_equivalents` 的影响：** 如果用户写 `left_literal: "NULL"` 且 `null_equivalents` 包含 `"NULL"`，字面量会被判为 `None`。想真正传 None 就写 `left_literal: null`。
 
-## What Does NOT Change
+## 不改动的部分
 
-- `KeyMapping` — no `left_literal` / `right_literal` on join keys.
-- Engine layer (`memory.py`, `disk.py`) — merge and diff logic
-  unchanged; the canonical DataFrame passed in already has literal
-  columns materialized.
-- Reporters — literal-valued diffs render exactly like any other
-  value diff (`left_value: "Azone"`, `right_value: "Bzone"`, etc.).
-- Batch mode — `fields:` lists replace wholesale during deep merge
-  (per existing rule), so a sub-task overriding a defaults field with
-  a literal version doesn't create merge collisions.
+- `KeyMapping` —— join key 不加 `left_literal` / `right_literal`。
+- 引擎层（`memory.py`、`disk.py`）—— merge 与 diff 逻辑不变；传入的规范化 DataFrame 里字面量列已经具象化。
+- 报告层 —— 字面量差异的渲染与普通值差异完全一致（`left_value: "Azone"`、`right_value: "Bzone"` 等）。
+- 批次模式 —— `fields:` 是 list，按现有规则整体替换，所以子任务用字面量字段覆盖 defaults 时不会产生合并冲突。
 
-## Testing
+## 测试计划
 
-**Model validation** (`tests/unit/config/test_models.py`):
+**模型校验**（`tests/unit/config/test_models.py`）：
 - `FieldRule(left="a", right="b")` → OK
 - `FieldRule(left_literal="X", right="b")` → OK
-- `FieldRule(left_literal=None, right="b")` → OK (explicit null literal)
+- `FieldRule(left_literal=None, right="b")` → OK（显式 null 字面量）
 - `FieldRule(left="a", right_literal="X")` → OK
-- `FieldRule(right="b")` → ValidationError (neither left nor left_literal)
+- `FieldRule(right="b")` → ValidationError（左侧两个都没给）
 - `FieldRule(left="a", left_literal="X", right="b")` → ValidationError
 
-**Column injection** (`tests/unit/normalize/test_columns.py`):
-- `apply_column_mapping` with a `left_literal` field: result has the
-  synthetic column with the constant value broadcast to all rows.
-- Same with `right_literal` on side="right".
-- `left_literal: None` → column of None values.
-- Zero-row DataFrame + literal → empty column, no crash.
+**列注入**（`tests/unit/normalize/test_columns.py`）：
+- 带 `left_literal` 的字段调 `apply_column_mapping`：结果里出现同名合成列，值广播到每一行
+- side="right" 时 `right_literal` 行为对称
+- `left_literal: None` → 该列所有值为 None
+- 零行 DataFrame + 字面量 → 空列，无异常
 
-**End-to-end via pipeline** (`tests/unit/normalize/test_pipeline.py`):
-- `{left_literal: "30", right: "amt", mode: numeric, decimal_places: 2}`
-  with a left DataFrame lacking `amt` → normalized left has `amt`
-  column of `30.0` values.
-- `{left_literal: null, right: "deleted_at"}` → normalized left has
-  `deleted_at` column of `None` values.
+**端到端管线**（`tests/unit/normalize/test_pipeline.py`）：
+- `{left_literal: "30", right: "amt", mode: numeric, decimal_places: 2}`，左 DataFrame 无 `amt` 列 → normalize 后左侧 `amt` 全部为 `30.0`
+- `{left_literal: null, right: "deleted_at"}` → normalize 后左侧 `deleted_at` 全部为 `None`
 
-**Integration** (`tests/integration/test_batch_e2e.py`):
-- New sub-task in a batch: Excel (no `type` column) vs. inline right
-  Excel with a `type` column that varies per row. Assert diffs land
-  only for rows where right's `type != literal`.
+**集成**（`tests/integration/test_batch_e2e.py`）：
+- 新增批次子任务：左 Excel（无 `type` 列）vs. 右 Excel（`type` 列逐行变化）。断言仅当右侧 `type != literal` 时才产生差异。
 
-## Documentation
+## 文档
 
-- `README.md`: add "字面量字段" (literal fields) subsection under
-  比对规则. Short example matching the YAML surface above.
-- `docs/user-guide.md`: same, under Comparison modes section, with
-  the null-literal case and the numeric-coercion note.
-- `CLAUDE.md`: append a bullet under 关键约束 noting the literal
-  feature and the `model_fields_set` disambiguation trick (so future
-  editors don't accidentally use `is None` checks that break null
-  literals).
+- `README.md`：在"比对规则"下加"字面量字段"小节，用 YAML 表面部分作示例。
+- `docs/user-guide.md`：在"比对模式"章节后加同名小节，附 null 字面量案例和 numeric 强转说明。
+- `CLAUDE.md`：在"关键约束"下追加一条，注明字面量特性和 `model_fields_set` 判定技巧（防止后续编辑误用 `is None` 判断从而破坏 null 字面量）。
 
-## Estimated Scope
+## 工作量估算
 
-- Model: ~15 lines (2 field additions + validator method)
-- `apply_column_mapping`: ~8 lines (loop + injection)
-- Tests: ~80 lines across 3 files
-- Docs: ~30 lines across 3 files
+- 模型：约 15 行（2 个字段 + 1 个 validator 方法）
+- `apply_column_mapping`：约 8 行（循环 + 注入）
+- 测试：3 个文件共约 80 行
+- 文档：3 个文件共约 30 行
 
-Single commit, single PR. No dependency additions.
+单 commit、单 PR。无新依赖。
