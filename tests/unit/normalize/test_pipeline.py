@@ -137,3 +137,55 @@ def test_pipeline_right_literal_canonical_name_uses_left():
     result = normalize_side(df, keys, _cfg(fields), side="right")
     assert "name" in result.columns
     assert result["name"].tolist() == ["prod"]
+
+
+def test_pipeline_key_alias_and_field_regex_end_to_end_right_side():
+    """Right side: source 'name' feeds both key (regex .*@@(.*), canonical join_id)
+    and field (regex (.*)@@.*, canonical name)."""
+    df = pd.DataFrame({"name": ["Alice@@1", "Bob@@2", "Carol@@3"]})
+    keys = [KeyMapping(left="id", right="name",
+                       right_regex=r".*@@(.*)", alias="join_id")]
+    fields = [FieldRule(left="name", right="name",
+                        right_regex=r"(.*)@@.*")]
+    result = normalize_side(df, keys, _cfg(fields), side="right")
+    assert set(result.columns) == {"join_id", "name"}
+    assert result["join_id"].tolist() == ["1", "2", "3"]
+    assert result["name"].tolist() == ["Alice", "Bob", "Carol"]
+
+
+def test_pipeline_key_alias_left_side_no_regex():
+    """Left side: no regex on either key or field; alias renames key canonical."""
+    df = pd.DataFrame({"id": ["1", "2"], "name": ["Alice", "Bob"]})
+    keys = [KeyMapping(left="id", right="name", alias="join_id")]
+    fields = [FieldRule(left="name", right="name")]
+    result = normalize_side(df, keys, _cfg(fields), side="left")
+    assert set(result.columns) == {"join_id", "name"}
+    assert result["join_id"].tolist() == ["1", "2"]
+    assert result["name"].tolist() == ["Alice", "Bob"]
+
+
+def test_pipeline_field_regex_soft_failure_returns_sentinel():
+    """Row that doesn't match field regex becomes RegexError, other rows fine."""
+    from datacompare.normalize.regex_errors import RegexError
+    df = pd.DataFrame({"id": ["1", "2", "3"], "code": ["A@@X", "no_at", "B@@Y"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left="code", right="code", right_regex=r"(.*)@@.*")]
+    result = normalize_side(df, keys, _cfg(fields), side="right")
+    vals = result["code"].tolist()
+    assert vals[0] == "A"
+    assert isinstance(vals[1], RegexError)
+    assert vals[1].original == "no_at"
+    assert vals[2] == "B"
+
+
+def test_pipeline_key_regex_still_strict_after_reorder():
+    """After moving key regex post-rename, strict semantics preserved:
+    mismatch aborts the entire task via KeyRegexMismatchError."""
+    import pytest
+    from datacompare.normalize.keys import KeyRegexMismatchError
+    df = pd.DataFrame({"name": ["Alice@@1", "no_at_at"]})
+    keys = [KeyMapping(left="id", right="name",
+                       right_regex=r".*@@(.*)", alias="join_id")]
+    fields = []
+    with pytest.raises(KeyRegexMismatchError):
+        normalize_side(df, keys, _cfg(fields), side="right")
