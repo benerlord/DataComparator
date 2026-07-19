@@ -58,3 +58,59 @@ def test_apply_column_mapping_left_col_named_like_right_key_no_collision():
     result = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["name", "amount"]
     assert result["name"].tolist() == ["1", "2"]  # came from 'id', not stray 'name'
+
+
+def test_apply_column_mapping_left_literal_injects_constant_column():
+    """Left has no 'zone' column but field is {left_literal: 'Azone', right: 'zone'}.
+    Result must contain a 'zone' column filled with 'Azone' for every row."""
+    df = pd.DataFrame({"id": ["1", "2", "3"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left_literal="Azone", right="zone")]
+    result = apply_column_mapping(df, keys, fields, side="left")
+    assert list(result.columns) == ["id", "zone"]
+    assert result["zone"].tolist() == ["Azone", "Azone", "Azone"]
+
+
+def test_apply_column_mapping_right_literal_injects_constant_column():
+    """Symmetric: right side literal. Canonical name comes from f.left when
+    only right side is literal."""
+    df = pd.DataFrame({"id": ["1", "2"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left="name", right_literal="prod")]
+    result = apply_column_mapping(df, keys, fields, side="right")
+    assert "name" in result.columns
+    assert result["name"].tolist() == ["prod", "prod"]
+
+
+def test_apply_column_mapping_left_literal_null():
+    """left_literal: null → column of None values."""
+    df = pd.DataFrame({"id": ["1", "2"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left_literal=None, right="deleted_at")]
+    result = apply_column_mapping(df, keys, fields, side="left")
+    assert list(result.columns) == ["id", "deleted_at"]
+    assert result["deleted_at"].isna().all()
+
+
+def test_apply_column_mapping_literal_on_empty_dataframe():
+    """Empty DataFrame + literal → empty column, no crash."""
+    df = pd.DataFrame({"id": pd.Series([], dtype=object)})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left_literal="X", right="zone")]
+    result = apply_column_mapping(df, keys, fields, side="left")
+    assert list(result.columns) == ["id", "zone"]
+    assert len(result) == 0
+
+
+def test_apply_column_mapping_mixed_column_and_literal_fields():
+    """Some fields have literal, others have real columns."""
+    df = pd.DataFrame({"id": ["1"], "amt": ["100"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [
+        FieldRule(left="amt", right="amount"),
+        FieldRule(left_literal="Azone", right="zone"),
+    ]
+    result = apply_column_mapping(df, keys, fields, side="left")
+    assert set(result.columns) == {"id", "amount", "zone"}
+    assert result.iloc[0]["amount"] == "100"
+    assert result.iloc[0]["zone"] == "Azone"

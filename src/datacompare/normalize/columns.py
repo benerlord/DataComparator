@@ -54,12 +54,30 @@ def apply_column_mapping(
     fields: list[FieldRule],
     side: Literal["left", "right"],
 ) -> pd.DataFrame:
-    """Rename columns to canonical (right-side) names; drop unmapped columns."""
+    """Rename columns to canonical names; drop unmapped columns; inject literal
+    fields as constant-valued columns.
+
+    Canonical name for a literal field = the non-literal side's column name
+    (e.g. `{left_literal: "X", right: "type"}` → canonical is "type"). When
+    both sides are literal, canonical = f.right (or f.left as fallback).
+    """
+    other = "right" if side == "left" else "left"
     rename_map: dict[str, str] = {}
     for k in keys:
         rename_map[getattr(k, side)] = k.right
+    literal_fields: list[tuple[str, str | None]] = []  # (canonical_name, literal_value)
     for f in fields:
-        rename_map[getattr(f, side)] = f.right
+        src = getattr(f, side)
+        if src is not None:
+            # Normal (non-literal) field: canonical name is always f.right.
+            rename_map[src] = f.right
+        else:
+            # literal on this side; canonical name comes from the other side's column
+            canonical = getattr(f, other)
+            if canonical is None:
+                # both sides literal — use f.right as name (arbitrary but stable)
+                canonical = f.right if f.right is not None else "_literal"
+            literal_fields.append((canonical, getattr(f, f"{side}_literal")))
     missing = [src for src in rename_map if src not in df.columns]
     if missing:
         from datacompare.config.errors import ConfigError
@@ -72,4 +90,8 @@ def apply_column_mapping(
     # source column whose name equals a target name (e.g. left has stray 'name'
     # while id→name) from colliding with the renamed column.
     src_cols = list(rename_map.keys())
-    return df[src_cols].rename(columns=rename_map)
+    result = df[src_cols].rename(columns=rename_map)
+    # Inject literal fields as constant columns (pandas broadcasts a scalar).
+    for canonical, literal_val in literal_fields:
+        result[canonical] = literal_val
+    return result
