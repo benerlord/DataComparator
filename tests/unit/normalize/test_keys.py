@@ -164,3 +164,72 @@ def test_apply_key_regex_emits_structured_log_on_mismatch():
     finally:
         # restore default configuration to avoid leaking test config
         structlog.reset_defaults()
+
+
+class TestApplyRegexOnCanonical:
+    def test_strict_mode_extracts_group_one(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        df = pd.DataFrame({"c": ["Alice@@1", "Bob@@2"]})
+        apply_regex_on_canonical(df, {"c": r".*@@(.*)"}, mode="strict")
+        assert df["c"].tolist() == ["1", "2"]
+
+    def test_strict_mode_raises_on_mismatch(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        df = pd.DataFrame({"c": ["Alice@@1", "no_at_at"]})
+        with pytest.raises(KeyRegexMismatchError):
+            apply_regex_on_canonical(df, {"c": r".*@@(.*)"}, mode="strict")
+
+    def test_soft_mode_extracts_group_one(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        df = pd.DataFrame({"c": ["Alice@@1", "Bob@@2"]})
+        apply_regex_on_canonical(df, {"c": r"(.*)@@.*"}, mode="soft")
+        assert df["c"].tolist() == ["Alice", "Bob"]
+
+    def test_soft_mode_returns_sentinel_on_mismatch(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        from datacompare.normalize.regex_errors import RegexError
+        df = pd.DataFrame({"c": ["Alice@@1", "no_at_at", "Carol@@3"]})
+        apply_regex_on_canonical(df, {"c": r"(.*)@@.*"}, mode="soft")
+        vals = df["c"].tolist()
+        assert vals[0] == "Alice"
+        assert isinstance(vals[1], RegexError)
+        assert vals[1].original == "no_at_at"
+        assert vals[1].pattern == r"(.*)@@.*"
+        assert vals[2] == "Carol"
+
+    def test_none_values_passthrough_strict(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        df = pd.DataFrame({"c": ["Alice@@1", None]}, dtype=object)
+        apply_regex_on_canonical(df, {"c": r".*@@(.*)"}, mode="strict")
+        assert df["c"].tolist() == ["1", None]
+
+    def test_none_values_passthrough_soft(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        df = pd.DataFrame({"c": ["Alice@@1", None]}, dtype=object)
+        apply_regex_on_canonical(df, {"c": r"(.*)@@.*"}, mode="soft")
+        assert df["c"].tolist() == ["Alice", None]
+
+    def test_zero_groups_uses_group_zero(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        df = pd.DataFrame({"c": ["abc", "xyz"]})
+        apply_regex_on_canonical(df, {"c": r"[a-z]+"}, mode="strict")
+        assert df["c"].tolist() == ["abc", "xyz"]
+
+    def test_multi_column_regex_map(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        df = pd.DataFrame({
+            "a": ["X@@1", "Y@@2"],
+            "b": ["P@@Q", "R@@S"],
+        })
+        apply_regex_on_canonical(df, {
+            "a": r".*@@(.*)",
+            "b": r"(.*)@@.*",
+        }, mode="strict")
+        assert df["a"].tolist() == ["1", "2"]
+        assert df["b"].tolist() == ["P", "R"]
+
+    def test_empty_regex_map_noop(self):
+        from datacompare.normalize.keys import apply_regex_on_canonical
+        df = pd.DataFrame({"c": ["a", "b"]})
+        apply_regex_on_canonical(df, {}, mode="strict")
+        assert df["c"].tolist() == ["a", "b"]
