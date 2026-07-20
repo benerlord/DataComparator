@@ -354,6 +354,11 @@ tasks:
 - **深度合并**：dict 递归、list 整体替换、嵌套 dict 的 `type` 变化时整体替换（避免 gaussdb→api 时残留 connection）
 - **每个 sub-task 一个子目录**：`./reports/{sub_task.name}/report.*` + `run-{ts}.log`
 - **`./reports/batch.log`**：聚合元事件日志，扫全景用
+- **`./reports/batch_summary.json`**（v0.7+）：机读聚合结果——batch 元数据 +
+  每个 sub-task 的 status、成功任务的比对统计（matched/diff/left_only/right_only）
+  或失败任务的错误摘要（type/message/path）+ 整批 `exit_code`。CI 场景直接 parse
+- **`./reports/batch_summary.html`**（v0.7+）：静态单文件索引页，链接到各
+  sub-task 详细 report。失败任务错误 message 内联展示，双击浏览器即可看
 - **退出码**：`2` > `10` > `1` > `0`（运行错 > diff+fail_on_diff > 配置错 > 成功）
 
 生成模板：

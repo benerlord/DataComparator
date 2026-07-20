@@ -142,6 +142,13 @@ Rules:
   plus its own `run-{ts}.log`
 - Aggregate meta-events land in `{defaults.output.dir}/batch.log` (one
   `batch_start` / `task_start` / `task_end` / `batch_end` JSON line each)
+- Aggregate summary reports land in `{defaults.output.dir}/batch_summary.json`
+  (v0.7+) — machine-readable: batch name, timestamps, `exit_code`,
+  per-task status + comparison stats (success) or error type/message truncated
+  to 500 chars (failed). CI-friendly.
+- Same directory: `batch_summary.html` (v0.7+) — human-friendly static index
+  page with relative links to each sub-task's detailed report; failed tasks'
+  error message inlined
 - Exit code priority: `2` (runtime error) > `10` (diff + `--fail-on-diff`)
   > `1` (config error) > `0`
 
