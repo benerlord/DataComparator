@@ -113,7 +113,7 @@ def run(
     if isinstance(cfg, BatchConfig):
         from datacompare.runner import execute_batch
         typer.echo(f"▶ Batch: {cfg.name} ({len(cfg.tasks)} tasks, on_error={cfg.on_error})\n")
-        batch_result = execute_batch(cfg, conns)
+        batch_result = execute_batch(cfg, conns, fail_on_diff=fail_on_diff)
         for i, r in enumerate(batch_result.task_results, start=1):
             n = len(batch_result.task_results)
             label = f"[{i}/{n}] {r.task_name}".ljust(45, ".")
