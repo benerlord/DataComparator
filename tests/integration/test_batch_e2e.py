@@ -277,3 +277,73 @@ tasks:
     assert report["summary"]["matched"] == 3
     assert report["summary"]["identical"] == 2
     assert report["summary"]["diff"] == 1
+
+
+def test_batch_scenario_l_summary_report_with_failure(tmp_path):
+    """Scenario L: batch with 1 success + 1 failed (bad file) + 1 skipped
+    (fail_fast) produces batch_summary.{json,html} with all statuses reflected.
+    """
+    _make_xlsx(tmp_path / "left.xlsx", {
+        "GOOD": [["id"], ["1"], ["2"]],
+        "OTHER": [["id"], ["3"]],
+    })
+    _make_xlsx(tmp_path / "right.xlsx", {
+        "GOOD": [["id"], ["1"], ["2"]],
+    })
+    task = tmp_path / "batch.yaml"
+    task.write_text(f"""
+name: scenario_l
+on_error: fail_fast
+sources:
+  left: {{type: excel, path: {tmp_path}/left.xlsx}}
+output:
+  dir: {tmp_path}/reports
+  formats: [json]
+tasks:
+  - name: ok_task
+    sources:
+      left: {{sheets: [{{name: GOOD}}]}}
+      right: {{type: excel, path: {tmp_path}/right.xlsx, sheets: [{{name: GOOD}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: []}}
+  - name: bad_file_task
+    sources:
+      left: {{sheets: [{{name: OTHER}}]}}
+      right: {{type: excel, path: {tmp_path}/does_not_exist.xlsx, sheets: [{{name: X}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: []}}
+  - name: skipped_after_failure
+    sources:
+      left: {{sheets: [{{name: GOOD}}]}}
+      right: {{type: excel, path: {tmp_path}/right.xlsx, sheets: [{{name: GOOD}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: []}}
+""", encoding="utf-8")
+
+    result = runner.invoke(app, ["run", str(task), "--connections", str(tmp_path / "none.yaml")])
+    assert result.exit_code == 2
+
+    summary_json = tmp_path / "reports" / "batch_summary.json"
+    assert summary_json.exists()
+    data = json.loads(summary_json.read_text(encoding="utf-8"))
+    assert data["batch_name"] == "scenario_l"
+    assert data["task_count"] == 3
+    assert data["success_count"] == 1
+    assert data["failed_count"] == 1
+    assert data["skipped_count"] == 1
+    assert data["exit_code"] == 2
+    by_name = {t["name"]: t for t in data["tasks"]}
+    assert by_name["ok_task"]["status"] == "success"
+    assert "stats" in by_name["ok_task"]
+    assert by_name["bad_file_task"]["status"] == "failed"
+    assert "error" in by_name["bad_file_task"]
+    assert by_name["skipped_after_failure"]["status"] == "skipped"
+
+    summary_html = tmp_path / "reports" / "batch_summary.html"
+    assert summary_html.exists()
+    html_text = summary_html.read_text(encoding="utf-8")
+    for name in ("ok_task", "bad_file_task", "skipped_after_failure"):
+        assert name in html_text
+    assert "✓" in html_text
+    assert "✗" in html_text
+    assert 'href="ok_task/report.html"' in html_text
