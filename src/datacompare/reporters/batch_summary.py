@@ -11,10 +11,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
 from datacompare.config.errors import ConfigError
 from datacompare.engine.result import BatchResult, SubTaskResult
 
 _ERROR_MESSAGE_MAX_CHARS = 500
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 
 def _task_dict(sub: SubTaskResult, report_dir: str) -> dict[str, Any]:
@@ -94,4 +97,28 @@ def write_batch_summary_json(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    return path
+
+
+def write_batch_summary_html(
+    batch_result: BatchResult,
+    exit_code: int,
+    started_at: datetime,
+    ended_at: datetime,
+    report_dirs: dict[str, str],
+    out_dir: Path,
+) -> Path:
+    """Render batch_summary.html via Jinja2. Returns the file path."""
+    summary = _build_summary_dict(
+        batch_result, exit_code, started_at, ended_at, report_dirs,
+    )
+    env = Environment(
+        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
+        autoescape=select_autoescape(["html", "jinja2"]),
+    )
+    template = env.get_template("batch_summary.jinja2")
+    html = template.render(summary=summary)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "batch_summary.html"
+    path.write_text(html, encoding="utf-8")
     return path

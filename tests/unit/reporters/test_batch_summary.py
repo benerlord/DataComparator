@@ -179,3 +179,80 @@ class TestWriteBatchSummaryJson:
         raw = path.read_bytes()
         assert not raw.startswith(b"\xef\xbb\xbf"), "should be UTF-8 without BOM"
         assert "任务_中文".encode("utf-8") in raw
+
+
+class TestWriteBatchSummaryHtml:
+    def test_writes_valid_html_to_out_dir(self, tmp_path):
+        from datacompare.reporters.batch_summary import write_batch_summary_html
+        rs = [
+            SubTaskResult(task_name="physical_host", status="success",
+                          comparison_result=_cr(matched=100, diff=2),
+                          error=None, duration_ms=4200),
+            SubTaskResult(task_name="cloud_vm", status="failed",
+                          comparison_result=None,
+                          error=ConfigError("columns not found in left source: ['sheets']",
+                                            path="sources.left"),
+                          duration_ms=150),
+            SubTaskResult(task_name="storage", status="skipped",
+                          comparison_result=None, error=None, duration_ms=0),
+        ]
+        path = write_batch_summary_html(
+            _batch_result(rs), exit_code=2,
+            started_at=STARTED, ended_at=ENDED,
+            report_dirs={"physical_host": "physical_host",
+                         "cloud_vm": "cloud_vm", "storage": "storage"},
+            out_dir=tmp_path,
+        )
+        assert path == tmp_path / "batch_summary.html"
+        assert path.exists()
+        html = path.read_text(encoding="utf-8")
+        # batch metadata visible
+        assert "cmdb_multi_sync" in html
+        assert "exit 2" in html or "exit_code: 2" in html or "exit&nbsp;2" in html
+        # each task name visible
+        assert "physical_host" in html
+        assert "cloud_vm" in html
+        assert "storage" in html
+        # status markers
+        assert "✓" in html
+        assert "✗" in html
+        # success task stats visible
+        assert "100" in html   # matched or left_total
+        # failed task error type + message visible
+        assert "ConfigError" in html
+        assert "columns not found" in html
+        # link to sub-task report (relative)
+        assert 'href="physical_host/report.html"' in html
+
+    def test_html_is_offline_single_file(self, tmp_path):
+        """No external resource references — must render offline."""
+        from datacompare.reporters.batch_summary import write_batch_summary_html
+        r = SubTaskResult(task_name="t", status="success",
+                          comparison_result=_cr(), error=None, duration_ms=1)
+        path = write_batch_summary_html(
+            _batch_result([r]), exit_code=0,
+            started_at=STARTED, ended_at=ENDED,
+            report_dirs={"t": "t"},
+            out_dir=tmp_path,
+        )
+        html = path.read_text(encoding="utf-8")
+        # No CDN / external URLs (allow DOCTYPE w3.org)
+        for token in ["src=\"http", "href=\"http", "cdn.", "googleapis"]:
+            assert token not in html, f"external ref found: {token}"
+
+    def test_html_escapes_error_message(self, tmp_path):
+        """Error messages containing HTML must be escaped, not rendered."""
+        from datacompare.reporters.batch_summary import write_batch_summary_html
+        r = SubTaskResult(task_name="t", status="failed",
+                          comparison_result=None,
+                          error=RuntimeError("<script>alert('xss')</script>"),
+                          duration_ms=1)
+        path = write_batch_summary_html(
+            _batch_result([r]), exit_code=2,
+            started_at=STARTED, ended_at=ENDED,
+            report_dirs={"t": "t"},
+            out_dir=tmp_path,
+        )
+        html = path.read_text(encoding="utf-8")
+        assert "<script>alert" not in html
+        assert "&lt;script&gt;" in html or "&#34;xss&#34;" in html or "&#x27;xss&#x27;" in html
