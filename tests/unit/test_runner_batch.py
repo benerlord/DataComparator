@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 import pytest
 from openpyxl import Workbook
 from datacompare.config.loader import load_task_or_batch
+from datacompare.config.models import BatchConfig
 from datacompare.runner import execute_batch
 from datacompare.engine.result import BatchResult
 
@@ -186,9 +188,6 @@ tasks:
     assert result.task_results[1].duration_ms == 0
 
 
-import json
-
-
 def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
@@ -257,3 +256,126 @@ def test_batch_log_end_event_has_final_counts(tmp_path):
     assert end["failed"] == 0
     assert end["skipped"] == 0
     assert isinstance(end["total_duration_ms"], int)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: batch_summary.{json,html} + fail_on_diff-aware exit_code
+# ---------------------------------------------------------------------------
+
+def _make_xlsx_multi(path: Path, sheets: dict):
+    wb = Workbook()
+    default_ws = wb.active
+    default_ws.title = "_placeholder"
+    for name, rows in sheets.items():
+        ws = wb.create_sheet(title=name)
+        for r in rows:
+            ws.append(r)
+    if "_placeholder" in wb.sheetnames:
+        del wb["_placeholder"]
+    wb.save(path)
+
+
+def test_execute_batch_writes_batch_summary_json_and_html(tmp_path):
+    """execute_batch produces batch_summary.{json,html} in the aggregate out_dir."""
+    _make_xlsx_multi(tmp_path / "l.xlsx", {"S": [["id"], ["x"]]})
+    _make_xlsx_multi(tmp_path / "r.xlsx", {"S": [["id"], ["x"]]})
+    yaml_path = tmp_path / "batch.yaml"
+    yaml_path.write_text(f"""
+name: agg_test
+sources:
+  left: {{type: excel, path: {tmp_path}/l.xlsx}}
+output:
+  dir: {tmp_path}/reports
+  formats: [json]
+tasks:
+  - name: t1
+    sources:
+      left: {{sheets: [{{name: S}}]}}
+      right: {{type: excel, path: {tmp_path}/r.xlsx, sheets: [{{name: S}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: []}}
+""", encoding="utf-8")
+    cfg = load_task_or_batch(yaml_path)
+    assert isinstance(cfg, BatchConfig)
+    execute_batch(cfg, {}, fail_on_diff=False)
+    summary_json = tmp_path / "reports" / "batch_summary.json"
+    summary_html = tmp_path / "reports" / "batch_summary.html"
+    assert summary_json.exists()
+    assert summary_html.exists()
+    data = json.loads(summary_json.read_text(encoding="utf-8"))
+    assert data["batch_name"] == "agg_test"
+    assert data["task_count"] == 1
+    assert data["success_count"] == 1
+    assert data["exit_code"] == 0
+    assert data["tasks"][0]["name"] == "t1"
+    assert data["tasks"][0]["report_dir"] == "t1"
+
+
+def test_execute_batch_summary_exit_code_reflects_fail_on_diff(tmp_path):
+    """With diffs and fail_on_diff=True, summary exit_code should be 10."""
+    _make_xlsx_multi(tmp_path / "l.xlsx", {"S": [["id", "v"], ["x", "1"]]})
+    _make_xlsx_multi(tmp_path / "r.xlsx", {"S": [["id", "v"], ["x", "2"]]})
+    yaml_path = tmp_path / "batch.yaml"
+    yaml_path.write_text(f"""
+name: diff_test
+sources:
+  left: {{type: excel, path: {tmp_path}/l.xlsx}}
+output:
+  dir: {tmp_path}/reports
+  formats: [json]
+tasks:
+  - name: t1
+    sources:
+      left: {{sheets: [{{name: S}}]}}
+      right: {{type: excel, path: {tmp_path}/r.xlsx, sheets: [{{name: S}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: [{{left: v, right: v}}]}}
+""", encoding="utf-8")
+    cfg = load_task_or_batch(yaml_path)
+    execute_batch(cfg, {}, fail_on_diff=True)
+    data = json.loads(
+        (tmp_path / "reports" / "batch_summary.json").read_text(encoding="utf-8")
+    )
+    assert data["exit_code"] == 10  # diff + fail_on_diff
+
+
+def test_execute_batch_summary_records_failed_task(tmp_path):
+    """A sub-task that raises a non-ConfigError should appear with status=failed,
+    error info, and cause the summary exit_code to be 2 (runtime error)."""
+    _make_xlsx_multi(tmp_path / "l.xlsx", {"S": [["id"], ["x"]]})
+    _make_xlsx_multi(tmp_path / "r.xlsx", {"S": [["id"], ["x"]]})
+    yaml_path = tmp_path / "batch.yaml"
+    yaml_path.write_text(f"""
+name: fail_test
+on_error: continue
+sources:
+  left: {{type: excel, path: {tmp_path}/l.xlsx}}
+output:
+  dir: {tmp_path}/reports
+  formats: [json]
+tasks:
+  - name: t_ok
+    sources:
+      left: {{sheets: [{{name: S}}]}}
+      right: {{type: excel, path: {tmp_path}/r.xlsx, sheets: [{{name: S}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: []}}
+  - name: t_bad_file
+    sources:
+      left: {{sheets: [{{name: S}}]}}
+      right: {{type: excel, path: {tmp_path}/does_not_exist.xlsx, sheets: [{{name: S}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: []}}
+""", encoding="utf-8")
+    cfg = load_task_or_batch(yaml_path)
+    execute_batch(cfg, {}, fail_on_diff=False)
+    data = json.loads(
+        (tmp_path / "reports" / "batch_summary.json").read_text(encoding="utf-8")
+    )
+    assert data["success_count"] == 1
+    assert data["failed_count"] == 1
+    assert data["exit_code"] == 2  # runtime error (FileNotFoundError, not ConfigError)
+    task_by_name = {t["name"]: t for t in data["tasks"]}
+    assert task_by_name["t_ok"]["status"] == "success"
+    assert task_by_name["t_bad_file"]["status"] == "failed"
+    assert "error" in task_by_name["t_bad_file"]

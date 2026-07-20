@@ -150,10 +150,29 @@ def _resolve_sub_task_output_dir(
     return str(Path(default_dir) / sub_name)
 
 
-def execute_batch(batch: BatchConfig, connections: dict[str, AnyConnection]) -> BatchResult:
+def execute_batch(
+    batch: BatchConfig,
+    connections: dict[str, AnyConnection],
+    fail_on_diff: bool = False,
+) -> BatchResult:
     """Run each sub-task sequentially. on_error=continue (default) runs all;
     on_error=fail_fast marks remaining sub-tasks as skipped after first failure.
-    Writes an aggregate structured log to {defaults.output.dir}/batch.log."""
+
+    Writes:
+    - {output.dir}/batch.log — structured JSON event stream (task_start, task_end, etc.)
+    - {output.dir}/batch_summary.json — aggregate result for CI/programmatic use
+    - {output.dir}/batch_summary.html — human-readable index page
+
+    fail_on_diff propagates from the CLI --fail-on-diff flag and only affects
+    the exit_code recorded in the summary; the BatchResult object itself is
+    identical either way.
+    """
+    from datetime import datetime, timezone
+    from datacompare.reporters.batch_summary import (
+        write_batch_summary_json,
+        write_batch_summary_html,
+    )
+
     defaults = _build_defaults_dict(batch)
     default_out_dir = (batch.output or {}).get("dir", "./reports")
     Path(default_out_dir).mkdir(parents=True, exist_ok=True)
@@ -161,6 +180,8 @@ def execute_batch(batch: BatchConfig, connections: dict[str, AnyConnection]) -> 
     logger, handler = _init_batch_logger(batch_log_path)
 
     results: list[SubTaskResult] = []
+    report_dirs: dict[str, str] = {}  # task_name -> path relative to default_out_dir
+    started_at = datetime.now(timezone.utc).astimezone()
     batch_start = time.monotonic()
     logger.info("batch_start", batch_name=batch.name,
                 task_count=len(batch.tasks), on_error=batch.on_error)
@@ -173,6 +194,7 @@ def execute_batch(batch: BatchConfig, connections: dict[str, AnyConnection]) -> 
                     task_name=sub.name, status="skipped",
                     comparison_result=None, error=None, duration_ms=0,
                 ))
+                report_dirs[sub.name] = sub.name
                 logger.info("task_end", task_name=sub.name, index=i,
                             total=len(batch.tasks), status="skipped",
                             duration_ms=0)
@@ -185,6 +207,13 @@ def execute_batch(batch: BatchConfig, connections: dict[str, AnyConnection]) -> 
             sub_out_dir = _resolve_sub_task_output_dir(sub_raw, merged, default_out_dir, sub.name)
             merged.setdefault("output", {})
             merged["output"]["dir"] = sub_out_dir
+
+            # Record relative report_dir for summary
+            try:
+                rel = str(Path(sub_out_dir).relative_to(default_out_dir))
+            except ValueError:
+                rel = sub_out_dir  # sub-task set an unrelated absolute output.dir
+            report_dirs[sub.name] = rel
 
             sub_task_start = time.monotonic()
             try:
@@ -214,12 +243,33 @@ def execute_batch(batch: BatchConfig, connections: dict[str, AnyConnection]) -> 
                     aborted = True
 
         total_dur = int((time.monotonic() - batch_start) * 1000)
+        ended_at = datetime.now(timezone.utc).astimezone()
         result = BatchResult(
             batch_name=batch.name, task_results=results, total_duration_ms=total_dur,
         )
         logger.info("batch_end", batch_name=batch.name,
                     success=result.success_count, failed=result.failed_count,
                     skipped=result.skipped_count, total_duration_ms=total_dur)
+
+        # Write aggregate summary files. Failures here MUST NOT break the batch
+        # — log warning and continue so we still return BatchResult.
+        exit_code = result.compute_exit_code(fail_on_diff)
+        for writer_name, writer in [
+            ("batch_summary.json", write_batch_summary_json),
+            ("batch_summary.html", write_batch_summary_html),
+        ]:
+            try:
+                writer(
+                    result, exit_code=exit_code,
+                    started_at=started_at, ended_at=ended_at,
+                    report_dirs=report_dirs,
+                    out_dir=Path(default_out_dir),
+                )
+            except Exception as e:
+                logger.warning("batch_summary_write_failed",
+                               file=writer_name, error_type=type(e).__name__,
+                               error_message=str(e))
+
         return result
     finally:
         logging.getLogger("datacompare.batch").removeHandler(handler)
