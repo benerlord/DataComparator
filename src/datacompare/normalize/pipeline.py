@@ -101,9 +101,9 @@ def normalize_side(
         eff = effective_rule(rule, compare.defaults)
         result[col] = result[col].map(lambda v, r=eff: _process_value(v, r))
 
-    surviving_field_cols = [
-        field_canonical_name(f)
-        for f in compare.fields
-        if field_canonical_name(f) not in missing_field_canonicals
-    ]
+    surviving_field_cols = []
+    for f in compare.fields:
+        canonical = field_canonical_name(f)
+        if canonical not in missing_field_canonicals:
+            surviving_field_cols.append(canonical)
     return result[key_cols + surviving_field_cols]

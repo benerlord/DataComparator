@@ -201,6 +201,7 @@ def test_apply_column_mapping_no_field_missing_returns_empty_frozenset():
 
 
 def test_apply_column_mapping_multiple_field_missing_all_reported():
+    """所有单侧缺列的 field canonical 都应出现在 missing 集里，一个不漏。"""
     df = pd.DataFrame({"id": ["1"]})
     keys = [KeyMapping(left="id", right="id")]
     fields = [

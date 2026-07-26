@@ -189,3 +189,37 @@ def test_pipeline_key_regex_still_strict_after_reorder():
     fields = []
     with pytest.raises(KeyRegexMismatchError):
         normalize_side(df, keys, _cfg(fields), side="right")
+
+
+def test_normalize_side_skips_missing_field_at_pipeline_level():
+    """v0.8 pre-flight for Task 4: normalize_side must transparently skip
+    fields whose source column is absent, without KeyError. Regex/coerce/
+    decimal steps for the missing field must be no-ops."""
+    df = pd.DataFrame({"id": ["1", "2"], "amt": ["10.556", "20.556"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [
+        FieldRule(left="missing_col", right="missing_col",
+                  mode="numeric", decimal_places=2),   # 缺列 + numeric 若未跳过会 KeyError
+        FieldRule(left="amt", right="amount",
+                  mode="numeric", decimal_places=2),
+    ]
+    # 不应抛异常。missing_col 从结果中消失，amount 正常参与 numeric 归一化。
+    result = normalize_side(df, keys, _cfg(fields), side="left")
+    assert list(result.columns) == ["id", "amount"]   # missing_col 缺席
+    assert result.iloc[0]["amount"] == 10.56
+    assert result.iloc[1]["amount"] == 20.56
+
+
+def test_normalize_side_skips_missing_field_with_regex():
+    """A field with a side_regex whose source column is missing must not
+    even attempt regex application — no RegexError, no KeyError."""
+    df = pd.DataFrame({"id": ["1"], "name": ["alice"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [
+        FieldRule(left="missing_col", right="missing_col",
+                  left_regex=r"foo(.*)"),   # 缺列 + regex 若未跳过会崩
+        FieldRule(left="name", right="name"),
+    ]
+    result = normalize_side(df, keys, _cfg(fields), side="left")
+    assert list(result.columns) == ["id", "name"]
+    assert result.iloc[0]["name"] == "alice"
