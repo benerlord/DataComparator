@@ -347,3 +347,96 @@ tasks:
     assert "✓" in html_text
     assert "✗" in html_text
     assert 'href="ok_task/report.html"' in html_text
+
+
+def test_batch_scenario_m_field_missing_soft_fail(tmp_path):
+    """v0.8 Scenario M: 3-sub-task batch
+      - task1: 正常成功
+      - task2: 单侧 field 缺列 → 从 v0.7 的 failed 变成 success + field_missing 汇总
+      - task3: key 缺列 → 仍 failed（key 硬失败路径不变）
+    """
+    _make_xlsx(tmp_path / "left.xlsx", {
+        "T1": [["id", "name"], ["1", "a"], ["2", "b"]],
+        # T2: 左侧只有 vmemory（打字错误 vmemorys 在左侧不存在）
+        "T2": [["id", "vmemory"], ["1", "16"], ["2", "32"]],
+        # T3: 左侧缺 id 列，触发 key 硬失败
+        "T3": [["name_only"], ["x"]],
+    })
+    _make_xlsx(tmp_path / "right.xlsx", {
+        "T1": [["id", "name"], ["1", "a"], ["2", "b"]],
+        # T2: 右侧有 vmemory 和 vmemorys
+        "T2": [["id", "vmemory", "vmemorys"], ["1", "16", "16GB"], ["2", "32", "32GB"]],
+        "T3": [["id", "name_only"], ["1", "x"]],
+    })
+
+    task = tmp_path / "batch.yaml"
+    task.write_text(f"""
+name: scenario_m
+on_error: continue
+sources:
+  left: {{type: excel, path: {tmp_path}/left.xlsx}}
+  right: {{type: excel, path: {tmp_path}/right.xlsx}}
+output:
+  dir: {tmp_path}/reports
+  formats: [html, json]
+tasks:
+  - name: task1_ok
+    sources:
+      left: {{sheets: [{{name: T1}}]}}
+      right: {{sheets: [{{name: T1}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: [{{left: name, right: name}}]}}
+  - name: task2_field_missing
+    sources:
+      left: {{sheets: [{{name: T2}}]}}
+      right: {{sheets: [{{name: T2}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare:
+      fields:
+        - {{left: vmemory, right: vmemory}}
+        - {{left: vmemorys, right: vmemorys}}
+  - name: task3_key_missing
+    sources:
+      left: {{sheets: [{{name: T3}}]}}
+      right: {{sheets: [{{name: T3}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: [{{left: name_only, right: name_only}}]}}
+""", encoding="utf-8")
+
+    result = runner.invoke(app, ["run", str(task), "--connections", str(tmp_path / "none.yaml")])
+    # task3 fails with ConfigError → exit code 1
+    assert result.exit_code == 1, f"stdout={result.output}"
+
+    summary_json = tmp_path / "reports" / "batch_summary.json"
+    assert summary_json.exists()
+    data = json.loads(summary_json.read_text(encoding="utf-8"))
+    assert data["batch_name"] == "scenario_m"
+    assert data["task_count"] == 3
+    assert data["success_count"] == 2   # task1 + task2
+    assert data["failed_count"] == 1    # task3
+    assert data["skipped_count"] == 0
+    by_name = {t["name"]: t for t in data["tasks"]}
+    assert by_name["task1_ok"]["status"] == "success"
+    assert by_name["task2_field_missing"]["status"] == "success"
+    # task2 至少产生一条 field_missing 汇总 diff（vmemorys 左侧缺）
+    assert by_name["task2_field_missing"]["stats"]["diff"] >= 1
+    assert by_name["task3_key_missing"]["status"] == "failed"
+
+    # task2 生成完整报告（v0.7 之前空目录）
+    task2_dir = tmp_path / "reports" / "task2_field_missing"
+    assert (task2_dir / "report.html").exists()
+    assert (task2_dir / "report.json").exists()
+
+    # task2 report.json 里应能看到 field_missing 类型的 diff 记录
+    task2_report = json.loads((task2_dir / "report.json").read_text(encoding="utf-8"))
+    diff_types = {d.get("diff_type") for d in task2_report.get("diff_details", [])}
+    assert "field_missing" in diff_types
+
+    # batch_summary.html 里 task2 显示 ✓ 而不是 ✗
+    summary_html = tmp_path / "reports" / "batch_summary.html"
+    html_text = summary_html.read_text(encoding="utf-8")
+    assert "task2_field_missing" in html_text
+    # 找到 task2 附近应有成功标记
+    idx = html_text.find("task2_field_missing")
+    surrounding = html_text[max(0, idx - 400):idx + 400]
+    assert "✓" in surrounding
