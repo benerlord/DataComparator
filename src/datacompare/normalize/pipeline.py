@@ -22,7 +22,7 @@ class NormalizedSide:
         df: 归一化后的 DataFrame，含 key canonical 列 + 存在的 field canonical 列。
         missing_field_canonicals: 该侧因源列缺失被跳过的 field canonical 集合。
     """
-    df: "pd.DataFrame"
+    df: pd.DataFrame
     missing_field_canonicals: frozenset[str]
 
 
