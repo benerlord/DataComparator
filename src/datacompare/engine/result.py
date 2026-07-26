@@ -24,6 +24,14 @@ class FieldError:
 
 @dataclass
 class CompareResult:
+    """Result of one comparison run.
+
+    Note on `diff_rows` (v0.8+): includes both per-row value diffs AND
+    field-missing summary records (one per field absent on exactly one
+    side). This means `diff_rows` may exceed `matched_rows` when many
+    fields are missing on one side — this is deliberate, structural
+    diffs count as diffs even though they aren't tied to a specific row.
+    """
     task_name: str
     left_name: str
     right_name: str

@@ -96,6 +96,7 @@ class InMemoryEngine(CompareEngine):
         diff_records: list[dict] = []
         errors: list[FieldError] = []
         identical_mask = pd.Series(True, index=both.index)
+        summary_missing_count = 0
 
         for f in task.compare.fields:
             canonical = field_canonical_name(f)
@@ -105,12 +106,14 @@ class InMemoryEngine(CompareEngine):
                     field_canonical=canonical, side_missing="left",
                     key_cols=key_cols, other_side_row_count=right_total,
                 ))
+                summary_missing_count += 1
                 continue
             if canonical in right_side.missing_field_canonicals:
                 diff_records.append(_build_field_missing_record(
                     field_canonical=canonical, side_missing="right",
                     key_cols=key_cols, other_side_row_count=left_total,
                 ))
+                summary_missing_count += 1
                 continue
 
             lcol = f"{canonical}__left"
@@ -152,11 +155,6 @@ class InMemoryEngine(CompareEngine):
         matched_rows = int(len(both))
         identical_rows = int(identical_mask.sum())
         # v0.8: 汇总记录也计入 diff_rows；identical_rows 只受 per-row 影响
-        summary_missing_count = sum(
-            1 for f in task.compare.fields
-            if field_canonical_name(f) in left_side.missing_field_canonicals
-            or field_canonical_name(f) in right_side.missing_field_canonicals
-        )
         diff_rows = (matched_rows - identical_rows) + summary_missing_count
 
         # v0.8: left_only_rows / right_only_rows 补齐缺列，schema 齐整

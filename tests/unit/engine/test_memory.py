@@ -10,13 +10,22 @@ from datacompare.sources.base import DataSource
 
 
 class _StubSource(DataSource):
-    def __init__(self, df, name="stub"):
+    def __init__(self, name, df):
+        self._name = name
         self._df = df
-        self.name = name
-    def columns(self): return list(self._df.columns)
-    def estimated_rows(self): return len(self._df)
+
+    @property
+    def name(self):
+        return self._name
+
+    def columns(self):
+        return list(self._df.columns)
+
+    def estimated_rows(self):
+        return len(self._df)
+
     def read(self, chunk_size=100_000):
-        yield self._df
+        yield self._df.astype(object)
 
 
 def _task():
@@ -40,10 +49,10 @@ def _task():
 
 
 def test_all_match():
-    left = _StubSource(pd.DataFrame({
+    left = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1", "A2"], "amount": ["100.50", "200.00"], "region": ["N", "S"],
     }))
-    right = _StubSource(pd.DataFrame({
+    right = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1", "A2"], "amount": ["100.50", "200.00"], "region": ["N", "S"],
     }))
     result = InMemoryEngine().compare(left, right, _task())
@@ -55,10 +64,10 @@ def test_all_match():
 
 
 def test_field_mismatch():
-    left = _StubSource(pd.DataFrame({
+    left = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1"], "amount": ["100.50"], "region": ["N"],
     }))
-    right = _StubSource(pd.DataFrame({
+    right = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1"], "amount": ["101.00"], "region": ["N"],
     }))
     result = InMemoryEngine().compare(left, right, _task())
@@ -69,10 +78,10 @@ def test_field_mismatch():
 
 
 def test_left_only_and_right_only():
-    left = _StubSource(pd.DataFrame({
+    left = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1", "A2"], "amount": ["1", "2"], "region": ["N", "S"],
     }))
-    right = _StubSource(pd.DataFrame({
+    right = _StubSource("stub", pd.DataFrame({
         "order_id": ["A2", "A3"], "amount": ["2", "3"], "region": ["S", "W"],
     }))
     result = InMemoryEngine().compare(left, right, _task())
@@ -82,10 +91,10 @@ def test_left_only_and_right_only():
 
 
 def test_null_mismatch():
-    left = _StubSource(pd.DataFrame({
+    left = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1"], "amount": ["100"], "region": [None],
     }))
-    right = _StubSource(pd.DataFrame({
+    right = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1"], "amount": ["100"], "region": ["N"],
     }))
     result = InMemoryEngine().compare(left, right, _task())
@@ -95,10 +104,10 @@ def test_null_mismatch():
 
 
 def test_duplicate_keys_rejected():
-    left = _StubSource(pd.DataFrame({
+    left = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1", "A1"], "amount": ["1", "2"], "region": ["N", "N"],
     }))
-    right = _StubSource(pd.DataFrame({
+    right = _StubSource("stub", pd.DataFrame({
         "order_id": ["A1"], "amount": ["1"], "region": ["N"],
     }))
     with pytest.raises(Exception, match="duplicate"):
@@ -107,25 +116,6 @@ def test_duplicate_keys_rejected():
 
 def test_field_missing_on_left_produces_summary_diff():
     """左侧缺 vmemorys 字段 → 该字段跳过 per-row，追加一条汇总。"""
-    from datacompare.engine.memory import InMemoryEngine
-    from datacompare.engine.result import DiffType
-    from datacompare.config.models import (
-        TaskConfig, MatchConfig, CompareConfig, CompareDefaults,
-        KeyMapping, FieldRule, OutputConfig,
-    )
-    from datacompare.sources.base import DataSource
-
-    class _StubSource(DataSource):
-        def __init__(self, name, df):
-            self._name, self._df = name, df
-        @property
-        def name(self): return self._name
-        def columns(self): return list(self._df.columns)
-        def estimated_rows(self): return len(self._df)
-        def read(self, chunk_size=None):
-            yield self._df.astype(object)
-
-    import pandas as pd
     left_df = pd.DataFrame({"id": ["1", "2", "3"], "name": ["a", "b", "c"]})
     right_df = pd.DataFrame({"id": ["1", "2", "3"], "name": ["a", "b", "c"],
                              "vmemorys": ["16", "32", "64"]})
@@ -156,25 +146,6 @@ def test_field_missing_on_left_produces_summary_diff():
 
 
 def test_field_missing_on_right_produces_summary_diff():
-    from datacompare.engine.memory import InMemoryEngine
-    from datacompare.engine.result import DiffType
-    from datacompare.config.models import (
-        TaskConfig, MatchConfig, CompareConfig, CompareDefaults,
-        KeyMapping, FieldRule, OutputConfig,
-    )
-    from datacompare.sources.base import DataSource
-
-    class _StubSource(DataSource):
-        def __init__(self, name, df):
-            self._name, self._df = name, df
-        @property
-        def name(self): return self._name
-        def columns(self): return list(self._df.columns)
-        def estimated_rows(self): return len(self._df)
-        def read(self, chunk_size=None):
-            yield self._df.astype(object)
-
-    import pandas as pd
     left_df = pd.DataFrame({"id": ["1", "2"], "name": ["a", "b"],
                             "hostname": ["h1", "h2"]})
     right_df = pd.DataFrame({"id": ["1", "2"], "name": ["a", "b"]})
@@ -197,25 +168,8 @@ def test_field_missing_on_right_produces_summary_diff():
 
 
 def test_field_missing_on_both_sides_raises_config_error():
-    from datacompare.engine.memory import InMemoryEngine
     from datacompare.config.errors import ConfigError
-    from datacompare.config.models import (
-        TaskConfig, MatchConfig, CompareConfig, CompareDefaults,
-        KeyMapping, FieldRule, OutputConfig,
-    )
-    from datacompare.sources.base import DataSource
 
-    class _StubSource(DataSource):
-        def __init__(self, name, df):
-            self._name, self._df = name, df
-        @property
-        def name(self): return self._name
-        def columns(self): return list(self._df.columns)
-        def estimated_rows(self): return len(self._df)
-        def read(self, chunk_size=None):
-            yield self._df.astype(object)
-
-    import pandas as pd
     left_df = pd.DataFrame({"id": ["1"], "name": ["a"]})
     right_df = pd.DataFrame({"id": ["1"], "name": ["a"]})
     task = TaskConfig(
@@ -234,25 +188,6 @@ def test_field_missing_on_both_sides_raises_config_error():
 
 
 def test_field_missing_multiple_fields_ordering_matches_declaration():
-    from datacompare.engine.memory import InMemoryEngine
-    from datacompare.engine.result import DiffType
-    from datacompare.config.models import (
-        TaskConfig, MatchConfig, CompareConfig, CompareDefaults,
-        KeyMapping, FieldRule, OutputConfig,
-    )
-    from datacompare.sources.base import DataSource
-
-    class _StubSource(DataSource):
-        def __init__(self, name, df):
-            self._name, self._df = name, df
-        @property
-        def name(self): return self._name
-        def columns(self): return list(self._df.columns)
-        def estimated_rows(self): return len(self._df)
-        def read(self, chunk_size=None):
-            yield self._df.astype(object)
-
-    import pandas as pd
     # 字段声明顺序: id_field, missL, missR, name
     left_df = pd.DataFrame({"id": ["1"], "id_field": ["v1"], "missR": ["r1"], "name": ["a"]})
     right_df = pd.DataFrame({"id": ["1"], "id_field": ["v1"], "missL": ["l1"], "name": ["a"]})
@@ -274,24 +209,6 @@ def test_field_missing_multiple_fields_ordering_matches_declaration():
 
 
 def test_field_missing_left_only_rows_padded_with_placeholder():
-    from datacompare.engine.memory import InMemoryEngine
-    from datacompare.config.models import (
-        TaskConfig, MatchConfig, CompareConfig, CompareDefaults,
-        KeyMapping, FieldRule, OutputConfig,
-    )
-    from datacompare.sources.base import DataSource
-
-    class _StubSource(DataSource):
-        def __init__(self, name, df):
-            self._name, self._df = name, df
-        @property
-        def name(self): return self._name
-        def columns(self): return list(self._df.columns)
-        def estimated_rows(self): return len(self._df)
-        def read(self, chunk_size=None):
-            yield self._df.astype(object)
-
-    import pandas as pd
     # 左独有 id=99；左缺 hostname 字段
     left_df = pd.DataFrame({"id": ["1", "99"], "name": ["a", "z"]})
     right_df = pd.DataFrame({"id": ["1", "2"], "name": ["a", "b"],
@@ -310,3 +227,28 @@ def test_field_missing_left_only_rows_padded_with_placeholder():
     # left_only_rows 中缺失的 hostname 列应补 "字段不存在"
     assert "hostname" in result.left_only_rows.columns
     assert (result.left_only_rows["hostname"] == "字段不存在").all()
+
+
+def test_field_missing_right_only_rows_padded_with_placeholder():
+    """Symmetric to _left_only_rows_padded: 右独有 + 右缺 field → 右侧
+    独有行的缺列填 "字段不存在"。"""
+    # 右独有 id=99；右缺 hostname 字段
+    left_df = pd.DataFrame({"id": ["1", "2"], "name": ["a", "b"],
+                            "hostname": ["h1", "h2"]})
+    right_df = pd.DataFrame({"id": ["1", "99"], "name": ["a", "z"]})
+    task = TaskConfig(
+        name="t",
+        sources={"left": {"type": "excel", "path": "x"},
+                 "right": {"type": "excel", "path": "x"}},
+        match=MatchConfig(keys=[KeyMapping(left="id", right="id")]),
+        compare=CompareConfig(defaults=CompareDefaults(), fields=[
+            FieldRule(left="name", right="name"),
+            FieldRule(left="hostname", right="hostname"),   # 右缺
+        ]),
+        output=OutputConfig(dir="./out", formats=["console"]),
+    )
+    result = InMemoryEngine().compare(
+        _StubSource("L", left_df), _StubSource("R", right_df), task,
+    )
+    assert "hostname" in result.right_only_rows.columns
+    assert (result.right_only_rows["hostname"] == "字段不存在").all()
