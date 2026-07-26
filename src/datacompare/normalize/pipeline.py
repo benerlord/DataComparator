@@ -1,5 +1,6 @@
 """Compose normalize steps into a per-side pipeline."""
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import Literal, Any
 import pandas as pd
 from datacompare.config.models import KeyMapping, CompareConfig
@@ -11,6 +12,18 @@ from .units import parse_and_convert, UnitError
 from .decimals import round_half_up
 from .keys import apply_regex_on_canonical
 from .regex_errors import RegexError
+
+
+@dataclass(frozen=True)
+class NormalizedSide:
+    """`normalize_side` 的返回值。纯数据容器。
+
+    Attributes:
+        df: 归一化后的 DataFrame，含 key canonical 列 + 存在的 field canonical 列。
+        missing_field_canonicals: 该侧因源列缺失被跳过的 field canonical 集合。
+    """
+    df: "pd.DataFrame"
+    missing_field_canonicals: frozenset[str]
 
 
 def _process_value(v: Any, rule: EffectiveRule) -> Any:
@@ -59,7 +72,7 @@ def normalize_side(
     keys: list[KeyMapping],
     compare: CompareConfig,
     side: Literal["left", "right"],
-) -> pd.DataFrame:
+) -> NormalizedSide:
     """Normalize one side:
       1. rename+duplicate source columns to canonical names (apply_column_mapping)
       2. apply key regexes on canonical columns (strict mode)
@@ -106,4 +119,7 @@ def normalize_side(
         canonical = field_canonical_name(f)
         if canonical not in missing_field_canonicals:
             surviving_field_cols.append(canonical)
-    return result[key_cols + surviving_field_cols]
+    return NormalizedSide(
+        df=result[key_cols + surviving_field_cols],
+        missing_field_canonicals=missing_field_canonicals,
+    )

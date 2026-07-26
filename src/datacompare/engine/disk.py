@@ -137,9 +137,10 @@ class DiskEngine(CompareEngine):
 
     @staticmethod
     def _normalize_all(src: DataSource, task: TaskConfig, side: str) -> pd.DataFrame:
-        chunks = []
+        dfs = []
         for chunk in src.read():
-            chunks.append(normalize_side(chunk, task.match.keys, task.compare, side=side))
-        if not chunks:
+            side_result = normalize_side(chunk, task.match.keys, task.compare, side=side)
+            dfs.append(side_result.df)
+        if not dfs:
             return pd.DataFrame()
-        return pd.concat(chunks, ignore_index=True)
+        return pd.concat(dfs, ignore_index=True)

@@ -58,8 +58,10 @@ class InMemoryEngine(CompareEngine):
         key_cols = [key_canonical_name(k) for k in task.match.keys]
         field_cols = [field_canonical_name(f) for f in task.compare.fields]
 
-        ldf = normalize_side(left_raw, task.match.keys, task.compare, side="left")
-        rdf = normalize_side(right_raw, task.match.keys, task.compare, side="right")
+        left_side = normalize_side(left_raw, task.match.keys, task.compare, side="left")
+        right_side = normalize_side(right_raw, task.match.keys, task.compare, side="right")
+        ldf = left_side.df
+        rdf = right_side.df
 
         # duplicate key check
         for label, df in (("left", ldf), ("right", rdf)):

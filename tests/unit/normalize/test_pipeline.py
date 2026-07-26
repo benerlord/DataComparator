@@ -14,21 +14,21 @@ def test_pipeline_renames_and_filters_columns():
     keys = [KeyMapping(left="订单号", right="order_id")]
     fields = [FieldRule(left="金额", right="amount", mode="numeric", decimal_places=2)]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert list(result.columns) == ["order_id", "amount"]
+    assert list(result.df.columns) == ["order_id", "amount"]
 
 def test_numeric_rounding():
     df = pd.DataFrame({"order_id": ["A1"], "amount": ["100.556"]})
     keys = [KeyMapping(left="order_id", right="order_id")]
     fields = [FieldRule(left="amount", right="amount", mode="numeric", decimal_places=2)]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert result.iloc[0]["amount"] == 100.56
+    assert result.df.iloc[0]["amount"] == 100.56
 
 def test_null_equivalent_becomes_none():
     df = pd.DataFrame({"order_id": ["A1"], "region": ["null"]})
     keys = [KeyMapping(left="order_id", right="order_id")]
     fields = [FieldRule(left="region", right="region", mode="string")]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert result.iloc[0]["region"] is None
+    assert result.df.iloc[0]["region"] is None
 
 def test_unit_parse():
     df = pd.DataFrame({"order_id": ["A1"], "storage": ["30 TB"]})
@@ -38,7 +38,7 @@ def test_unit_parse():
         parse_unit=True, unit_category="storage", normalize_to="GB", decimal_places=0,
     )]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert result.iloc[0]["storage"] == 30720
+    assert result.df.iloc[0]["storage"] == 30720
 
 def test_string_case_and_whitespace():
     df = pd.DataFrame({"order_id": ["A1"], "region": ["  NORTH  "]})
@@ -49,7 +49,7 @@ def test_string_case_and_whitespace():
         ignore_whitespace=True, ignore_case=True,
     )]
     result = normalize_side(df, keys, _cfg(fields, defaults), side="left")
-    assert result.iloc[0]["region"] == "north"
+    assert result.df.iloc[0]["region"] == "north"
 
 
 def test_pipeline_applies_left_regex_before_join():
@@ -58,8 +58,8 @@ def test_pipeline_applies_left_regex_before_join():
                        left_regex=r"ORD-0*(\d+)")]
     fields = [FieldRule(left="amount", right="amount")]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert list(result.columns) == ["order_id", "amount"]
-    assert result.iloc[0]["order_id"] == "123"
+    assert list(result.df.columns) == ["order_id", "amount"]
+    assert result.df.iloc[0]["order_id"] == "123"
 
 
 def test_pipeline_applies_right_regex():
@@ -68,7 +68,7 @@ def test_pipeline_applies_right_regex():
                        right_regex=r"ORD-0*(\d+)")]
     fields = [FieldRule(left="amount", right="amount")]
     result = normalize_side(df, keys, _cfg(fields), side="right")
-    assert result.iloc[0]["order_id"] == "456"
+    assert result.df.iloc[0]["order_id"] == "456"
 
 
 def test_pipeline_raises_key_regex_mismatch_error():
@@ -86,8 +86,8 @@ def test_pipeline_backward_compatible_without_regex():
     keys = [KeyMapping(left="订单号", right="order_id")]
     fields = [FieldRule(left="金额", right="amount", mode="numeric", decimal_places=2)]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert result.iloc[0]["order_id"] == "A1"
-    assert result.iloc[0]["amount"] == 100.50
+    assert result.df.iloc[0]["order_id"] == "A1"
+    assert result.df.iloc[0]["amount"] == 100.50
 
 
 def test_pipeline_left_literal_with_numeric_mode_coerces():
@@ -97,8 +97,8 @@ def test_pipeline_left_literal_with_numeric_mode_coerces():
     fields = [FieldRule(left_literal="30", right="memory",
                         mode="numeric", decimal_places=2)]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert list(result.columns) == ["id", "memory"]
-    assert result["memory"].tolist() == [30.0, 30.0]
+    assert list(result.df.columns) == ["id", "memory"]
+    assert result.df["memory"].tolist() == [30.0, 30.0]
 
 
 def test_pipeline_left_literal_null_produces_none_column():
@@ -107,7 +107,7 @@ def test_pipeline_left_literal_null_produces_none_column():
     keys = [KeyMapping(left="id", right="id")]
     fields = [FieldRule(left_literal=None, right="deleted_at")]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert result["deleted_at"].isna().all()
+    assert result.df["deleted_at"].isna().all()
 
 
 def test_pipeline_left_literal_string_mode_applies_transforms():
@@ -124,7 +124,7 @@ def test_pipeline_left_literal_string_mode_applies_transforms():
     )]
     result = normalize_side(df, keys, _cfg(fields), side="left")
     # ignore_whitespace strips, ignore_case casefolds
-    assert result["zone"].tolist() == ["azone", "azone", "azone"]
+    assert result.df["zone"].tolist() == ["azone", "azone", "azone"]
 
 
 def test_pipeline_right_literal_canonical_name_uses_left():
@@ -135,8 +135,8 @@ def test_pipeline_right_literal_canonical_name_uses_left():
     keys = [KeyMapping(left="id", right="id")]
     fields = [FieldRule(left="name", right_literal="prod")]
     result = normalize_side(df, keys, _cfg(fields), side="right")
-    assert "name" in result.columns
-    assert result["name"].tolist() == ["prod"]
+    assert "name" in result.df.columns
+    assert result.df["name"].tolist() == ["prod"]
 
 
 def test_pipeline_key_alias_and_field_regex_end_to_end_right_side():
@@ -148,9 +148,9 @@ def test_pipeline_key_alias_and_field_regex_end_to_end_right_side():
     fields = [FieldRule(left="name", right="name",
                         right_regex=r"(.*)@@.*")]
     result = normalize_side(df, keys, _cfg(fields), side="right")
-    assert set(result.columns) == {"join_id", "name"}
-    assert result["join_id"].tolist() == ["1", "2", "3"]
-    assert result["name"].tolist() == ["Alice", "Bob", "Carol"]
+    assert set(result.df.columns) == {"join_id", "name"}
+    assert result.df["join_id"].tolist() == ["1", "2", "3"]
+    assert result.df["name"].tolist() == ["Alice", "Bob", "Carol"]
 
 
 def test_pipeline_key_alias_left_side_no_regex():
@@ -159,9 +159,9 @@ def test_pipeline_key_alias_left_side_no_regex():
     keys = [KeyMapping(left="id", right="name", alias="join_id")]
     fields = [FieldRule(left="name", right="name")]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert set(result.columns) == {"join_id", "name"}
-    assert result["join_id"].tolist() == ["1", "2"]
-    assert result["name"].tolist() == ["Alice", "Bob"]
+    assert set(result.df.columns) == {"join_id", "name"}
+    assert result.df["join_id"].tolist() == ["1", "2"]
+    assert result.df["name"].tolist() == ["Alice", "Bob"]
 
 
 def test_pipeline_field_regex_soft_failure_returns_sentinel():
@@ -171,7 +171,7 @@ def test_pipeline_field_regex_soft_failure_returns_sentinel():
     keys = [KeyMapping(left="id", right="id")]
     fields = [FieldRule(left="code", right="code", right_regex=r"(.*)@@.*")]
     result = normalize_side(df, keys, _cfg(fields), side="right")
-    vals = result["code"].tolist()
+    vals = result.df["code"].tolist()
     assert vals[0] == "A"
     assert isinstance(vals[1], RegexError)
     assert vals[1].original == "no_at"
@@ -205,9 +205,9 @@ def test_normalize_side_skips_missing_field_at_pipeline_level():
     ]
     # 不应抛异常。missing_col 从结果中消失，amount 正常参与 numeric 归一化。
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert list(result.columns) == ["id", "amount"]   # missing_col 缺席
-    assert result.iloc[0]["amount"] == 10.56
-    assert result.iloc[1]["amount"] == 20.56
+    assert list(result.df.columns) == ["id", "amount"]   # missing_col 缺席
+    assert result.df.iloc[0]["amount"] == 10.56
+    assert result.df.iloc[1]["amount"] == 20.56
 
 
 def test_normalize_side_skips_missing_field_with_regex():
@@ -221,5 +221,28 @@ def test_normalize_side_skips_missing_field_with_regex():
         FieldRule(left="name", right="name"),
     ]
     result = normalize_side(df, keys, _cfg(fields), side="left")
-    assert list(result.columns) == ["id", "name"]
-    assert result.iloc[0]["name"] == "alice"
+    assert list(result.df.columns) == ["id", "name"]
+    assert result.df.iloc[0]["name"] == "alice"
+
+
+def test_normalize_side_returns_normalized_side_dataclass():
+    from datacompare.normalize.pipeline import NormalizedSide
+    df = pd.DataFrame({"id": ["1"], "amt": ["10"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left="amt", right="amount")]
+    result = normalize_side(df, keys, _cfg(fields), side="left")
+    assert isinstance(result, NormalizedSide)
+    assert isinstance(result.df, pd.DataFrame)
+    assert result.missing_field_canonicals == frozenset()
+
+
+def test_normalize_side_reports_missing_field_canonicals():
+    df = pd.DataFrame({"id": ["1"], "vmemory": ["16"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [
+        FieldRule(left="vmemorys", right="vmemorys"),   # 打字错误 → 缺列
+        FieldRule(left="vmemory", right="vmemory"),     # 存在
+    ]
+    result = normalize_side(df, keys, _cfg(fields), side="left")
+    assert result.missing_field_canonicals == frozenset({"vmemorys"})
+    assert list(result.df.columns) == ["id", "vmemory"]
