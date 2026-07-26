@@ -11,6 +11,7 @@ class DiffType(str, Enum):
     UNIT_ERROR = "unit_error"
     REGEX_ERROR = "regex_error"
     NULL_MISMATCH = "null_mismatch"
+    FIELD_MISSING = "field_missing"
 
 
 @dataclass(frozen=True)

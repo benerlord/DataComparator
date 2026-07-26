@@ -144,3 +144,8 @@ def test_batch_result_exit_code_config_error_only():
         total_duration_ms=150,
     )
     assert br.compute_exit_code(fail_on_diff=False) == 1
+
+
+def test_diff_type_field_missing_enum_value():
+    from datacompare.engine.result import DiffType
+    assert DiffType.FIELD_MISSING.value == "field_missing"
