@@ -1,3 +1,4 @@
+import pytest
 import pandas as pd
 from datacompare.config.models import (
     KeyMapping, FieldRule, CompareDefaults, MatchConfig, CompareConfig,
@@ -10,7 +11,7 @@ def test_apply_column_mapping_left_side():
     df = pd.DataFrame({"订单号": ["A1"], "金额": ["100"], "extra": ["x"]})
     keys = [KeyMapping(left="订单号", right="order_id")]
     fields = [FieldRule(left="金额", right="amount")]
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["order_id", "amount"]
     assert result.iloc[0]["order_id"] == "A1"
 
@@ -18,7 +19,7 @@ def test_apply_column_mapping_right_side_no_rename_needed():
     df = pd.DataFrame({"order_id": ["A1"], "amount": ["100"]})
     keys = [KeyMapping(left="订单号", right="order_id")]
     fields = [FieldRule(left="金额", right="amount")]
-    result = apply_column_mapping(df, keys, fields, side="right")
+    result, _ = apply_column_mapping(df, keys, fields, side="right")
     assert list(result.columns) == ["order_id", "amount"]
 
 def test_effective_rule_inherits_defaults():
@@ -55,7 +56,7 @@ def test_apply_column_mapping_left_col_named_like_right_key_no_collision():
     })
     keys = [KeyMapping(left="id", right="name")]
     fields = [FieldRule(left="amount", right="amount")]
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["name", "amount"]
     assert result["name"].tolist() == ["1", "2"]  # came from 'id', not stray 'name'
 
@@ -66,7 +67,7 @@ def test_apply_column_mapping_left_literal_injects_constant_column():
     df = pd.DataFrame({"id": ["1", "2", "3"]})
     keys = [KeyMapping(left="id", right="id")]
     fields = [FieldRule(left_literal="Azone", right="zone")]
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["id", "zone"]
     assert result["zone"].tolist() == ["Azone", "Azone", "Azone"]
 
@@ -77,7 +78,7 @@ def test_apply_column_mapping_right_literal_injects_constant_column():
     df = pd.DataFrame({"id": ["1", "2"]})
     keys = [KeyMapping(left="id", right="id")]
     fields = [FieldRule(left="name", right_literal="prod")]
-    result = apply_column_mapping(df, keys, fields, side="right")
+    result, _ = apply_column_mapping(df, keys, fields, side="right")
     assert "name" in result.columns
     assert result["name"].tolist() == ["prod", "prod"]
 
@@ -87,7 +88,7 @@ def test_apply_column_mapping_left_literal_null():
     df = pd.DataFrame({"id": ["1", "2"]})
     keys = [KeyMapping(left="id", right="id")]
     fields = [FieldRule(left_literal=None, right="deleted_at")]
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["id", "deleted_at"]
     assert result["deleted_at"].isna().all()
 
@@ -97,7 +98,7 @@ def test_apply_column_mapping_literal_on_empty_dataframe():
     df = pd.DataFrame({"id": pd.Series([], dtype=object)})
     keys = [KeyMapping(left="id", right="id")]
     fields = [FieldRule(left_literal="X", right="zone")]
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["id", "zone"]
     assert len(result) == 0
 
@@ -110,7 +111,7 @@ def test_apply_column_mapping_mixed_column_and_literal_fields():
         FieldRule(left="amt", right="amount"),
         FieldRule(left_literal="Azone", right="zone"),
     ]
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert set(result.columns) == {"id", "amount", "zone"}
     assert result.iloc[0]["amount"] == "100"
     assert result.iloc[0]["zone"] == "Azone"
@@ -124,7 +125,7 @@ def test_apply_column_mapping_left_side_with_right_literal_field():
     df = pd.DataFrame({"id": ["1", "2"], "name": ["alice", "bob"]})
     keys = [KeyMapping(left="id", right="id")]
     fields = [FieldRule(left="name", right_literal="prod")]
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["id", "name"]
     assert result["name"].tolist() == ["alice", "bob"]
 
@@ -146,7 +147,7 @@ def test_apply_column_mapping_key_alias_uses_alias_as_canonical():
     df = pd.DataFrame({"id": ["1", "2"]})
     keys = [KeyMapping(left="id", right="name", alias="join_id")]
     fields = []
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert list(result.columns) == ["join_id"]
     assert result["join_id"].tolist() == ["1", "2"]
 
@@ -158,7 +159,7 @@ def test_apply_column_mapping_same_source_column_duplicated_for_key_and_field():
     df = pd.DataFrame({"name": ["Alice@@1", "Bob@@2"]})
     keys = [KeyMapping(left="id", right="name", alias="join_id")]
     fields = [FieldRule(left="name", right="name")]
-    result = apply_column_mapping(df, keys, fields, side="right")
+    result, _ = apply_column_mapping(df, keys, fields, side="right")
     assert set(result.columns) == {"join_id", "name"}
     assert result["join_id"].tolist() == ["Alice@@1", "Bob@@2"]
     assert result["name"].tolist() == ["Alice@@1", "Bob@@2"]
@@ -170,7 +171,63 @@ def test_apply_column_mapping_left_side_with_key_alias_and_stray_col():
     df = pd.DataFrame({"id": ["1", "2"], "name": ["Alice", "Bob"]})
     keys = [KeyMapping(left="id", right="name", alias="join_id")]
     fields = [FieldRule(left="name", right="name")]
-    result = apply_column_mapping(df, keys, fields, side="left")
+    result, _ = apply_column_mapping(df, keys, fields, side="left")
     assert set(result.columns) == {"join_id", "name"}
     assert result["join_id"].tolist() == ["1", "2"]
     assert result["name"].tolist() == ["Alice", "Bob"]
+
+
+def test_apply_column_mapping_field_missing_returns_marker():
+    """v0.8: field 缺列不再 raise，而是从结果 df 剔除并加入 missing set。"""
+    df = pd.DataFrame({"id": ["1", "2"], "vmemory": ["16", "32"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [
+        FieldRule(left="vmemorys", right="vmemorys"),  # 打字错误，左侧无此列
+        FieldRule(left="vmemory", right="vmemory"),    # 存在
+    ]
+    result_df, missing = apply_column_mapping(df, keys, fields, side="left")
+    assert missing == frozenset({"vmemorys"})
+    assert list(result_df.columns) == ["id", "vmemory"]
+    assert result_df["vmemory"].tolist() == ["16", "32"]
+
+
+def test_apply_column_mapping_no_field_missing_returns_empty_frozenset():
+    df = pd.DataFrame({"id": ["1"], "amt": ["10"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left="amt", right="amount")]
+    result_df, missing = apply_column_mapping(df, keys, fields, side="left")
+    assert missing == frozenset()
+    assert list(result_df.columns) == ["id", "amount"]
+
+
+def test_apply_column_mapping_multiple_field_missing_all_reported():
+    df = pd.DataFrame({"id": ["1"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [
+        FieldRule(left="a", right="a"),
+        FieldRule(left="b", right="b"),
+        FieldRule(left="c", right="c"),
+    ]
+    _df, missing = apply_column_mapping(df, keys, fields, side="left")
+    assert missing == frozenset({"a", "b", "c"})
+
+
+def test_apply_column_mapping_key_missing_still_raises():
+    """v0.8: key 缺列仍然硬失败（不像 field 那样软化）。"""
+    from datacompare.config.errors import ConfigError
+    df = pd.DataFrame({"amount": ["10"]})   # 无 id 列
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left="amount", right="amount")]
+    with pytest.raises(ConfigError) as excinfo:
+        apply_column_mapping(df, keys, fields, side="left")
+    assert "id" in str(excinfo.value)
+
+
+def test_apply_column_mapping_literal_field_untouched_by_missing_check():
+    """Literal 字段在该侧没有 source 列 → 不算 missing。"""
+    df = pd.DataFrame({"id": ["1"]})
+    keys = [KeyMapping(left="id", right="id")]
+    fields = [FieldRule(left_literal="Azone", right="zone")]
+    result_df, missing = apply_column_mapping(df, keys, fields, side="left")
+    assert missing == frozenset()
+    assert "zone" in result_df.columns

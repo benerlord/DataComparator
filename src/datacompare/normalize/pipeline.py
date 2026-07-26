@@ -66,7 +66,7 @@ def normalize_side(
       3. apply field regexes on canonical columns (soft mode -> RegexError sentinel)
       4. per-field _process_value (string preprocess -> unit -> type coerce -> decimals)
     """
-    renamed = apply_column_mapping(df, keys, compare.fields, side=side)
+    renamed, missing_field_canonicals = apply_column_mapping(df, keys, compare.fields, side=side)
     key_cols = [key_canonical_name(k) for k in keys]
 
     # Step 2: key regex on canonical (strict)
@@ -81,17 +81,29 @@ def normalize_side(
     )
 
     # Step 3: field regex on canonical (soft — RegexError sentinel on mismatch)
+    # Skip canonicals that are missing on this side
     field_regex_map: dict[str, str] = {}
     for f in compare.fields:
+        canonical = field_canonical_name(f)
+        if canonical in missing_field_canonicals:
+            continue
         pattern = getattr(f, f"{side}_regex")
         if pattern is not None:
-            field_regex_map[field_canonical_name(f)] = pattern
+            field_regex_map[canonical] = pattern
     apply_regex_on_canonical(renamed, field_regex_map, mode="soft")
 
-    # Step 4: per-field _process_value
+    # Step 4: per-field _process_value (skip missing canonicals)
     result = renamed.copy()
     for rule in compare.fields:
-        eff = effective_rule(rule, compare.defaults)
         col = field_canonical_name(rule)
+        if col in missing_field_canonicals:
+            continue
+        eff = effective_rule(rule, compare.defaults)
         result[col] = result[col].map(lambda v, r=eff: _process_value(v, r))
-    return result[key_cols + [field_canonical_name(f) for f in compare.fields]]
+
+    surviving_field_cols = [
+        field_canonical_name(f)
+        for f in compare.fields
+        if field_canonical_name(f) not in missing_field_canonicals
+    ]
+    return result[key_cols + surviving_field_cols]
