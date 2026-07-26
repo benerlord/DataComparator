@@ -4,6 +4,7 @@ import time
 from typing import Any
 import pandas as pd
 from datacompare.config.models import TaskConfig
+from datacompare.config.errors import ConfigError
 from datacompare.sources.base import DataSource
 from datacompare.normalize.pipeline import normalize_side
 from datacompare.normalize.types import CoerceError
@@ -11,6 +12,7 @@ from datacompare.normalize.units import UnitError
 from datacompare.normalize.regex_errors import RegexError
 from .base import CompareEngine
 from .result import CompareResult, DiffType, FieldError
+from ._field_missing import _build_field_missing_record
 from datacompare.normalize.columns import field_canonical_name, key_canonical_name
 
 
@@ -63,6 +65,18 @@ class InMemoryEngine(CompareEngine):
         ldf = left_side.df
         rdf = right_side.df
 
+        # v0.8: 双侧同 field 缺 → 硬失败
+        both_missing = left_side.missing_field_canonicals & right_side.missing_field_canonicals
+        if both_missing:
+            raise ConfigError(
+                f"compare fields not found in either source: {sorted(both_missing)}",
+                path="compare.fields",
+                suggestion=(
+                    f"available left={list(left_raw.columns)}, "
+                    f"available right={list(right_raw.columns)}"
+                ),
+            )
+
         # duplicate key check
         for label, df in (("left", ldf), ("right", rdf)):
             dupes = df[df.duplicated(subset=key_cols, keep=False)]
@@ -79,13 +93,26 @@ class InMemoryEngine(CompareEngine):
         left_only_mask = merged["_merge"] == "left_only"
         right_only_mask = merged["_merge"] == "right_only"
 
-        # field-level diffs
         diff_records: list[dict] = []
         errors: list[FieldError] = []
         identical_mask = pd.Series(True, index=both.index)
 
         for f in task.compare.fields:
             canonical = field_canonical_name(f)
+            # v0.8: 单侧缺 → 追加一条汇总记录，跳过 per-row
+            if canonical in left_side.missing_field_canonicals:
+                diff_records.append(_build_field_missing_record(
+                    field_canonical=canonical, side_missing="left",
+                    key_cols=key_cols, other_side_row_count=right_total,
+                ))
+                continue
+            if canonical in right_side.missing_field_canonicals:
+                diff_records.append(_build_field_missing_record(
+                    field_canonical=canonical, side_missing="right",
+                    key_cols=key_cols, other_side_row_count=left_total,
+                ))
+                continue
+
             lcol = f"{canonical}__left"
             rcol = f"{canonical}__right"
             for idx, row in both.iterrows():
@@ -124,13 +151,46 @@ class InMemoryEngine(CompareEngine):
 
         matched_rows = int(len(both))
         identical_rows = int(identical_mask.sum())
-        diff_rows = matched_rows - identical_rows
+        # v0.8: 汇总记录也计入 diff_rows；identical_rows 只受 per-row 影响
+        summary_missing_count = sum(
+            1 for f in task.compare.fields
+            if field_canonical_name(f) in left_side.missing_field_canonicals
+            or field_canonical_name(f) in right_side.missing_field_canonicals
+        )
+        diff_rows = (matched_rows - identical_rows) + summary_missing_count
 
-        # build left_only / right_only DataFrames (use left-suffix / right-suffix cols)
-        left_only_df = merged[left_only_mask][key_cols + [f"{c}__left" for c in field_cols]]
-        left_only_df = left_only_df.rename(columns={f"{c}__left": c for c in field_cols})
-        right_only_df = merged[right_only_mask][key_cols + [f"{c}__right" for c in field_cols]]
-        right_only_df = right_only_df.rename(columns={f"{c}__right": c for c in field_cols})
+        # v0.8: left_only_rows / right_only_rows 补齐缺列，schema 齐整
+        # pandas outer-join 只在两侧都有同名列时才加后缀；单侧列保留原名。
+        # 单侧存在列的 merged 列名规则：
+        #   col exists on both sides  → {c}__left / {c}__right
+        #   col exists only on left   → bare {c}  (from left side)
+        #   col exists only on right  → bare {c}  (from right side)
+
+        def _merged_col_name(canonical: str, side: str) -> str:
+            on_left = canonical not in left_side.missing_field_canonicals
+            on_right = canonical not in right_side.missing_field_canonicals
+            if on_left and on_right:
+                return f"{canonical}__{side}"
+            # single-side: pandas kept the bare name
+            return canonical
+
+        left_only_raw = merged[left_only_mask].copy()
+        left_only_df = left_only_raw[key_cols].copy()
+        for c in field_cols:
+            if c in left_side.missing_field_canonicals:
+                left_only_df[c] = "字段不存在"
+            else:
+                merged_col = _merged_col_name(c, "left")
+                left_only_df[c] = left_only_raw[merged_col].values
+
+        right_only_raw = merged[right_only_mask].copy()
+        right_only_df = right_only_raw[key_cols].copy()
+        for c in field_cols:
+            if c in right_side.missing_field_canonicals:
+                right_only_df[c] = "字段不存在"
+            else:
+                merged_col = _merged_col_name(c, "right")
+                right_only_df[c] = right_only_raw[merged_col].values
 
         diff_df = pd.DataFrame(diff_records)
 
