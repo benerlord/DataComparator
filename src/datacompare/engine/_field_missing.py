@@ -32,3 +32,23 @@ def _build_field_missing_record(
         record["right_value"] = "字段不存在"
     record["diff_type"] = DiffType.FIELD_MISSING.value
     return record
+
+
+def merged_col_name(
+    canonical: str,
+    side: Literal["left", "right"],
+    left_missing: frozenset[str],
+    right_missing: frozenset[str],
+) -> str:
+    """Return the actual column name in a pandas outer-merged DataFrame.
+
+    pandas outer-merge only adds __left/__right suffixes when a column exists
+    in BOTH DataFrames; a column present on only one side keeps its bare name
+    in the result. Callers building left_only_rows / right_only_rows must
+    account for this — otherwise they KeyError on missing-field scenarios.
+    """
+    on_left = canonical not in left_missing
+    on_right = canonical not in right_missing
+    if on_left and on_right:
+        return f"{canonical}__{side}"
+    return canonical
