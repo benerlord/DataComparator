@@ -366,6 +366,24 @@ tasks:
 datacompare init batch-example -o batch.yaml
 ```
 
+### 字段缺列软失败（v0.8+）
+
+如果 `compare.fields` 里某个字段引用的源列在**单侧**不存在（例如 YAML 拼写错误
+`vmemorys` 但源表只有 `vmemory`），DataComparator **不再**让整个 task 失败，而是：
+
+- 该字段跳过 per-row 比对
+- 在报告的"字段差异明细"里追加**一条**汇总记录：`left_value="字段不存在"`（或
+  `right_value="字段不存在"`），`diff_type="field_missing"`
+- 其它字段照常比对
+- 任务状态 `success`，`diff_rows` +1
+- HTML 报告里该行使用灰色背景与值差异区分
+
+**双侧同字段都缺** → 仍然 `ConfigError`（几乎肯定是 YAML 拼错，需及时暴露）。
+**key 缺列** → 仍然 `ConfigError`（没 key 无法 join）。
+
+想让缺列继续作为失败信号触发 CI 红灯，加 `--fail-on-diff`：缺列产生的汇总 diff
+会让退出码变 `10`。
+
 ### 参数替换（三种占位符）
 
 | 占位符 | 来源 | 例子 |

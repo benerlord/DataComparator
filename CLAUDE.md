@@ -106,6 +106,25 @@ CLI (Typer)  →  Config (Pydantic + YAML)  →  DataSource 抽象
   贡献一个 `(source_col, canonical)` 对，同源列多次出现 = 复制成多个
   canonical 列（不是 rename）。canonical 撞名靠 loader fail-fast 挡住，
   运行时不用再查重。
+- **`apply_column_mapping` 缺列语义**（v0.8 起）：**field 缺列不再 raise**，
+  改为返回 `(df, missing_field_canonicals: frozenset[str])`。只有 **key
+  缺列**才 raise `ConfigError`（无 key 无法 join）。"双侧同 field 缺"的硬
+  失败判定在 engine 层——因为需要跨侧信息。signature 是 tuple，任何调用方
+  （现只有 `pipeline.py` 和测试）都必须显式解包。
+- **`NormalizedSide` 数据容器 + engine 缺列消费**（v0.8 起）：`normalize_side`
+  返回 `NormalizedSide(df, missing_field_canonicals)` 而非裸 DataFrame。任
+  何消费方要显式取 `.df`。engine 层用 `missing_field_canonicals`：① 双侧
+  交集非空 → raise `ConfigError`；② 单侧存在 → 跳过 per-row 比对并追加一
+  条 `field_missing` 汇总记录（`_build_field_missing_record` in
+  `engine/_field_missing.py`）；③ `left_only_rows` / `right_only_rows` 补
+  齐 "字段不存在" 常量列，reporter schema 齐整。汇总记录 key 列填空串，
+  left_value / right_value 为中文字面量 "字段不存在"，不走 sentinel
+  dataclass 路径。**diff_rows 语义变化**：`diff_rows = (matched_rows -
+  identical_rows) + summary_missing_count`，可能超过 matched_rows（结构性
+  缺失是额外 diff，不属于任何具体行）。`merged_col_name(canonical, side,
+  left_missing, right_missing)` 处理 pandas outer-merge 后缀歧义——两侧都
+  有的列有 `__left/__right` 后缀，单侧列保留 bare 名。memory/disk 两引擎
+  都通过这个 shared helper 消歧。
 
 ## 开发流程约定
 

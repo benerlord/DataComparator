@@ -90,6 +90,31 @@ Rules:
   This is deliberate: bad key kills the join, bad field is just a data
   quality issue.
 
+### 字段缺列软失败（v0.8+）
+
+`compare.fields` 里某字段引用的源列在**单侧**缺失时的行为：
+
+| 情况 | 结果 |
+|---|---|
+| 某 field 在**单侧**缺列 | 该字段跳过 per-row，diff 明细追加一条汇总记录 |
+| 同一 field 在**双侧**都缺 | `ConfigError`（YAML 拼错早暴露） |
+| key 在任一侧缺列 | `ConfigError`（无 key 无法 join） |
+
+**汇总记录示例**（left 侧缺 `vmemorys`）：
+
+| id  | field    | left_value | right_value          | diff_type      |
+|-----|----------|------------|----------------------|----------------|
+| ""  | vmemorys | 字段不存在 | (右侧 10000 行有值)  | field_missing  |
+
+规则：
+- 每个缺列字段产生**一条**记录（不按行展开），避免淹没真正的值差异
+- key 列填空串（这是结构性缺失，不属于某一行）
+- 存在侧的行数用数据源总行数（`right_total` / `left_total`）
+- diff_type 为 `field_missing`，HTML 报告用灰色背景区分
+- 任务状态仍 `success`；想让缺列变成失败信号加 `--fail-on-diff`（exit 10）
+
+**规避**：确认 YAML 里的字段名与源列名精确一致（大小写敏感）。
+
 ### Source column duplication (v0.6+)
 
 If the same source column is referenced by both a key and a field
