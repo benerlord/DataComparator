@@ -7,6 +7,23 @@
 - **GaussDB T** (OLTP, `variant: t`): JDBC via JayDeBeApi + gsjdbc4.jar. Requires `pip install 'datacompare[gaussdb-t]'` and JRE 8+. See README for connection example.
 - **HTTP API**: three auth strategies (none / bearer / cookie); three pagination modes (page / offset / cursor); JSONPath extraction
 
+### Sheet 选择（Excel 专属）
+
+Excel 数据源的 `sheets:` 列表每一项恰好指定 `name` / `index` / `name_regex` 三者之一：
+
+| 字段 | 用途 | 例子 |
+|---|---|---|
+| `name` | 精确匹配 sheet 名 | `{name: "PHYSICAL"}` |
+| `index` | 按位置索引（0-based）| `{index: 0}` |
+| `name_regex` | 正则唯一匹配（v0.9+）| `{name_regex: "^物理主机_\\d{4}_\\d{2}$"}` |
+
+`name_regex` 规则：
+- 用 Python `re.fullmatch`（整字匹配，不是子串搜索）
+- **严格唯一**：0 或 ≥2 命中都抛 `ConfigError` 并列出可用/命中项
+- 加载期 pydantic 会试跑 `re.compile`，非法 pattern 立即报错；空串也不允许
+- 忽略大小写用内联 flag：`(?i)^physical_.*`
+- 一个 `sheets:` 列表里可混合三种选择器
+
 ## Configuration
 
 Two YAML files:

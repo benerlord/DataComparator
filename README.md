@@ -405,6 +405,13 @@ sources:
     force_string: true
 ```
 
+**sheet 选择器**（`sheets:` 列表元素三选一，v0.9+）：
+- `{name: "PHYSICAL_HOST"}` — 精确匹配
+- `{index: 0}` — 按索引（0-based）
+- `{name_regex: "^物理主机_\\d{4}_\\d{2}$"}` — 正则唯一匹配；匹配 0 张或
+  ≥2 张都会 `ConfigError`。适合 sheet 名带日期戳、版本号等易变部分的
+  场景。忽略大小写用内联 flag：`(?i)physical_.*`
+
 **GaussDB**（`type: gaussdb`）
 ```yaml
 sources:
