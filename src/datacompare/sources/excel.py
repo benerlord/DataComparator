@@ -1,6 +1,8 @@
 """Excel source using openpyxl in read-only mode."""
 from __future__ import annotations
 from typing import Iterator
+import re
+import structlog
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.workbook import Workbook
@@ -8,6 +10,8 @@ from .base import DataSource
 from .registry import register_source
 from datacompare.config.models import ExcelSourceConfig, SheetSelector
 from datacompare.config.errors import ConfigError
+
+_log = structlog.get_logger(__name__)
 
 
 @register_source("excel")
@@ -37,8 +41,30 @@ class ExcelSource(DataSource):
                 if sel.index >= len(wb.sheetnames):
                     raise ConfigError(f"sheet index {sel.index} out of range")
                 result.append(wb.sheetnames[sel.index])
+            elif sel.name_regex is not None:
+                pattern = re.compile(sel.name_regex)
+                matches = [n for n in wb.sheetnames if pattern.fullmatch(n)]
+                if len(matches) == 0:
+                    raise ConfigError(
+                        f"name_regex '{sel.name_regex}' matched no sheets",
+                        path="sources.sheets",
+                        suggestion=f"available: {wb.sheetnames}",
+                    )
+                if len(matches) > 1:
+                    raise ConfigError(
+                        f"name_regex '{sel.name_regex}' matched {len(matches)} sheets: {matches}",
+                        path="sources.sheets",
+                        suggestion="tighten the pattern to match exactly one sheet",
+                    )
+                _log.info(
+                    "sheet_regex_resolved",
+                    regex=sel.name_regex,
+                    resolved_to=matches[0],
+                )
+                result.append(matches[0])
             else:
-                raise ConfigError("SheetSelector must have name or index")
+                # 不可达：validator 已强制三选一
+                raise ConfigError("SheetSelector must have name, index, or name_regex")
         return result
 
     def _sheet_header(self, sheet_name: str) -> list[str]:
