@@ -440,3 +440,52 @@ tasks:
     idx = html_text.find("task2_field_missing")
     surrounding = html_text[max(0, idx - 400):idx + 400]
     assert "✓" in surrounding
+
+
+def test_batch_scenario_n_sheet_name_regex(tmp_path):
+    """v0.9 Scenario N: 批次模式下用 name_regex 定位一张日期戳变名的 sheet。
+    - Excel 有 3 张 sheet：物理主机_2026_07 / 云主机_2026_07 / 存储_2026_07
+    - batch.yaml 用 name_regex "^物理主机_\\d{4}_\\d{2}$" 定位第一张
+    - 断言 sub-task 成功、__sheet__ 列值正确
+    """
+    _make_xlsx(tmp_path / "manage.xlsx", {
+        "物理主机_2026_07": [["id", "name"], ["p1", "host-1"], ["p2", "host-2"]],
+        "云主机_2026_07": [["id", "name"], ["v1", "vm-1"]],
+        "存储_2026_07": [["id", "name"], ["s1", "disk-1"]],
+    })
+    _make_xlsx(tmp_path / "snapshot.xlsx", {
+        "PHYSICAL": [["id", "name"], ["p1", "host-1"], ["p2", "host-2"]],
+    })
+
+    task = tmp_path / "batch.yaml"
+    task.write_text(f"""
+name: scenario_n
+sources:
+  left: {{type: excel, path: {tmp_path}/manage.xlsx}}
+output:
+  dir: {tmp_path}/reports
+  formats: [json]
+tasks:
+  - name: physical_via_regex
+    sources:
+      left: {{sheets: [{{name_regex: "^物理主机_\\\\d{{4}}_\\\\d{{2}}$"}}]}}
+      right: {{type: excel, path: {tmp_path}/snapshot.xlsx, sheets: [{{name: PHYSICAL}}]}}
+    match: {{keys: [{{left: id, right: id}}]}}
+    compare: {{fields: [{{left: name, right: name}}]}}
+""", encoding="utf-8")
+
+    result = runner.invoke(app, ["run", str(task), "--connections", str(tmp_path / "none.yaml")])
+    assert result.exit_code == 0, f"stdout={result.output}"
+
+    summary_json = tmp_path / "reports" / "batch_summary.json"
+    assert summary_json.exists()
+    data = json.loads(summary_json.read_text(encoding="utf-8"))
+    assert data["success_count"] == 1
+    task_entry = data["tasks"][0]
+    assert task_entry["name"] == "physical_via_regex"
+    assert task_entry["status"] == "success"
+    assert task_entry["stats"]["matched"] == 2
+    assert task_entry["stats"]["diff"] == 0
+
+    report_json = tmp_path / "reports" / "physical_via_regex" / "report.json"
+    assert report_json.exists()
