@@ -20,10 +20,12 @@ class SheetSelector(BaseModel):
             )
         # 加载期校验 regex 可编译
         if self.name_regex is not None:
+            if self.name_regex == "":
+                raise ValueError("name_regex must not be empty")
             try:
                 re.compile(self.name_regex)
             except re.error as e:
-                raise ValueError(f"invalid name_regex '{self.name_regex}': {e}") from e
+                raise ValueError(f"invalid name_regex {self.name_regex!r}: {e}") from e
         return self
 
 

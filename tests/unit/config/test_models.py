@@ -239,10 +239,17 @@ def test_sheet_selector_regex_compile_check_load_time():
     with pytest.raises(ValidationError) as excinfo:
         SheetSelector(name_regex="[unclosed")
     msg = str(excinfo.value).lower()
-    assert "invalid name_regex" in msg or "unterminated" in msg or "unbalanced" in msg
+    assert "invalid name_regex" in msg
 
 
 def test_sheet_selector_regex_with_inline_flag_compiles():
     """(?i) inline flag 合法编译。"""
     sel = SheetSelector(name_regex="(?i)^physical_host_.*")
     assert sel.name_regex.startswith("(?i)")
+
+
+def test_sheet_selector_name_regex_empty_string_rejected():
+    """name_regex 空串应加载期报错（re.compile("") 合法但语义无意义）。"""
+    with pytest.raises(ValidationError) as excinfo:
+        SheetSelector(name_regex="")
+    assert "must not be empty" in str(excinfo.value)
