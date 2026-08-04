@@ -198,3 +198,51 @@ class TestFieldRuleRegex:
         from datacompare.config.models import FieldRule
         f = FieldRule(left="a", right="b", left_regex=r"(.*)@@.*")
         assert f.left_regex == r"(.*)@@.*"
+
+
+# ---------- v0.9: SheetSelector.name_regex tests ----------------------------
+
+def test_sheet_selector_name_regex_valid():
+    """v0.9: 单纯 name_regex 是合法的（三选一之一）。"""
+    sel = SheetSelector(name_regex=r"^物理主机_\d{4}_\d{2}$")
+    assert sel.name_regex == r"^物理主机_\d{4}_\d{2}$"
+    assert sel.name is None
+    assert sel.index is None
+
+
+def test_sheet_selector_exclusive_name_and_regex():
+    """同时给 name + name_regex → ValidationError。"""
+    with pytest.raises(ValidationError):
+        SheetSelector(name="A", name_regex="^A.*")
+
+
+def test_sheet_selector_exclusive_index_and_regex():
+    """同时给 index + name_regex → ValidationError。"""
+    with pytest.raises(ValidationError):
+        SheetSelector(index=0, name_regex="^A.*")
+
+
+def test_sheet_selector_all_three_provided():
+    """三个都给 → ValidationError。"""
+    with pytest.raises(ValidationError):
+        SheetSelector(name="A", index=0, name_regex="^A.*")
+
+
+def test_sheet_selector_none_of_three():
+    """全空 → ValidationError。"""
+    with pytest.raises(ValidationError):
+        SheetSelector()
+
+
+def test_sheet_selector_regex_compile_check_load_time():
+    """非法 pattern 在加载期就报错，不到运行时才炸。"""
+    with pytest.raises(ValidationError) as excinfo:
+        SheetSelector(name_regex="[unclosed")
+    msg = str(excinfo.value).lower()
+    assert "invalid name_regex" in msg or "unterminated" in msg or "unbalanced" in msg
+
+
+def test_sheet_selector_regex_with_inline_flag_compiles():
+    """(?i) inline flag 合法编译。"""
+    sel = SheetSelector(name_regex="(?i)^physical_host_.*")
+    assert sel.name_regex.startswith("(?i)")

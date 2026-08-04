@@ -9,6 +9,22 @@ class SheetSelector(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str | None = None
     index: int | None = None
+    name_regex: str | None = None    # v0.9+
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        provided = sum(x is not None for x in (self.name, self.index, self.name_regex))
+        if provided != 1:
+            raise ValueError(
+                "SheetSelector must have exactly one of: name, index, name_regex"
+            )
+        # 加载期校验 regex 可编译
+        if self.name_regex is not None:
+            try:
+                re.compile(self.name_regex)
+            except re.error as e:
+                raise ValueError(f"invalid name_regex '{self.name_regex}': {e}") from e
+        return self
 
 
 class SourceConfig(BaseModel):
