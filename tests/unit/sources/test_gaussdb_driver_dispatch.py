@@ -12,10 +12,12 @@ def test_a_variant_creates_postgres_driver():
     assert isinstance(src._driver, PostgresDriver)
 
 
-def test_t_variant_creates_jdbc_driver():
+def test_t_variant_creates_jdbc_driver(tmp_path):
+    jar = tmp_path / "fake.jar"
+    jar.write_bytes(b"")
     cfg = GaussDBSourceConfig(connection="c", query="SELECT 1")
     conn = GaussDBTConnection(
-        variant="t", jdbc_url="j", jdbc_jar_path="p",
+        variant="t", jdbc_url="j", jdbc_jar_path=str(jar),
         jdbc_driver_class="c", user="u", password="p",
     )
     src = GaussDBSource(cfg, conn)

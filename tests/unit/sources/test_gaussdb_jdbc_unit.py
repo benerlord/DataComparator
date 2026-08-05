@@ -5,11 +5,18 @@ from datacompare.config.models import GaussDBTConnection
 from datacompare.config.errors import ConfigError
 
 
-def _creds(**overrides):
+@pytest.fixture
+def fake_jar(tmp_path):
+    jar = tmp_path / "fake.jar"
+    jar.write_bytes(b"")
+    return str(jar)
+
+
+def _creds(jar_path: str, **overrides):
     base = dict(
         variant="t",
         jdbc_url="jdbc:zenith:@//h:1611/svc",
-        jdbc_jar_path="/nonexistent.jar",
+        jdbc_jar_path=jar_path,
         jdbc_driver_class="com.huawei.gauss.jdbc.ZenithDriver",
         user="u", password="p",
     )
@@ -53,9 +60,9 @@ def test_ensure_jvm_is_idempotent(mocker, tmp_path):
     assert fake_jpype.startJVM.call_count == 1
 
 
-def test_url_properties_appended_no_existing_qs():
+def test_url_properties_appended_no_existing_qs(fake_jar):
     from datacompare.sources.gaussdb_jdbc import JdbcDriver
-    creds = _creds(jdbc_properties={"loginTimeout": "30", "fetchSize": "1000"})
+    creds = _creds(fake_jar, jdbc_properties={"loginTimeout": "30", "fetchSize": "1000"})
     driver = JdbcDriver(creds)
     url = driver._build_url_with_properties()
     assert url.startswith("jdbc:zenith:@//h:1611/svc?")
@@ -64,9 +71,10 @@ def test_url_properties_appended_no_existing_qs():
     assert url.count("?") == 1
 
 
-def test_url_properties_appended_when_qs_exists():
+def test_url_properties_appended_when_qs_exists(fake_jar):
     from datacompare.sources.gaussdb_jdbc import JdbcDriver
     creds = _creds(
+        fake_jar,
         jdbc_url="jdbc:zenith:@//h:1611/svc?existing=x",
         jdbc_properties={"loginTimeout": "30"},
     )
@@ -75,8 +83,8 @@ def test_url_properties_appended_when_qs_exists():
     assert url == "jdbc:zenith:@//h:1611/svc?existing=x&loginTimeout=30"
 
 
-def test_url_no_properties_unchanged():
+def test_url_no_properties_unchanged(fake_jar):
     from datacompare.sources.gaussdb_jdbc import JdbcDriver
-    creds = _creds()  # no jdbc_properties
+    creds = _creds(fake_jar)  # no jdbc_properties
     driver = JdbcDriver(creds)
     assert driver._build_url_with_properties() == "jdbc:zenith:@//h:1611/svc"

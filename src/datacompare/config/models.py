@@ -1,6 +1,7 @@
 """Pydantic v2 models for task and connection configuration."""
 from __future__ import annotations
 import re
+from pathlib import Path
 from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
@@ -246,6 +247,21 @@ class GaussDBTConnection(BaseModel):
     user: str
     password: str
     jdbc_properties: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("jdbc_jar_path", mode="after")
+    @classmethod
+    def _resolve_and_check_jar(cls, v: str) -> str:
+        """v0.10+: 加载期把相对路径 resolve 成绝对路径 + ~ 展开 + 存在性校验。
+
+        避免 batch 模式下 CWD 在 sub-task 之间变化导致 JVM 找不到 JAR。
+        相对路径按运行 datacompare 命令时的 CWD 解析。
+        """
+        resolved = Path(v).expanduser().resolve()
+        if not resolved.is_file():
+            raise ValueError(
+                f"jdbc_jar_path 不存在: {resolved} (原值: {v}, 已按 CWD 解析)"
+            )
+        return str(resolved)
 
 
 # Union type: usable in isinstance checks (Python 3.10+) and type annotations.

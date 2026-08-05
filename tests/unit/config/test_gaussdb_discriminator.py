@@ -37,11 +37,13 @@ def test_t_variant_requires_jdbc_fields():
     assert "jdbc_driver_class" in errors
 
 
-def test_t_variant_complete():
+def test_t_variant_complete(tmp_path):
+    jar = tmp_path / "gsjdbc4.jar"
+    jar.write_bytes(b"")
     data = {
         "type": "gaussdb", "variant": "t",
         "jdbc_url": "jdbc:zenith:@//h:1611/svc",
-        "jdbc_jar_path": "/opt/gsjdbc4.jar",
+        "jdbc_jar_path": str(jar),
         "jdbc_driver_class": "com.huawei.gauss.jdbc.ZenithDriver",
         "user": "u", "password": "p",
     }
@@ -50,11 +52,13 @@ def test_t_variant_complete():
     assert conn.jdbc_properties == {}
 
 
-def test_t_variant_with_properties():
+def test_t_variant_with_properties(tmp_path):
+    jar = tmp_path / "gsjdbc4.jar"
+    jar.write_bytes(b"")
     data = {
         "type": "gaussdb", "variant": "t",
         "jdbc_url": "jdbc:zenith:@//h:1611/svc",
-        "jdbc_jar_path": "/opt/gsjdbc4.jar",
+        "jdbc_jar_path": str(jar),
         "jdbc_driver_class": "com.huawei.gauss.jdbc.ZenithDriver",
         "user": "u", "password": "p",
         "jdbc_properties": {"loginTimeout": "30", "fetchSize": "1000"},
@@ -74,23 +78,27 @@ def test_a_variant_rejects_jdbc_fields():
         TypeAdapter(AnyConnection).validate_python(data)
 
 
-def test_t_variant_rejects_host_field():
+def test_t_variant_rejects_host_field(tmp_path):
     """extra=forbid: T variant with host should be rejected"""
+    jar = tmp_path / "fake.jar"
+    jar.write_bytes(b"")
     data = {
         "type": "gaussdb", "variant": "t", "host": "h",
-        "jdbc_url": "j", "jdbc_jar_path": "p", "jdbc_driver_class": "c",
+        "jdbc_url": "j", "jdbc_jar_path": str(jar), "jdbc_driver_class": "c",
         "user": "u", "password": "p",
     }
     with pytest.raises(ValidationError, match="extra"):
         TypeAdapter(AnyConnection).validate_python(data)
 
 
-def test_isinstance_check_works_on_union_type():
+def test_isinstance_check_works_on_union_type(tmp_path):
     """Python 3.10+ isinstance(x, X | Y) support — required by runner.py:27"""
+    jar = tmp_path / "fake.jar"
+    jar.write_bytes(b"")
     a = GaussDBAConnection(host="h", database="d", user="u", password="p")
     assert isinstance(a, GaussDBConnection)
     t = GaussDBTConnection(
-        variant="t", jdbc_url="j", jdbc_jar_path="p",
+        variant="t", jdbc_url="j", jdbc_jar_path=str(jar),
         jdbc_driver_class="c", user="u", password="p",
     )
     assert isinstance(t, GaussDBConnection)
