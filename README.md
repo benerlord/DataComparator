@@ -499,6 +499,20 @@ prod_oltp_t:
 - 常驻额外内存约 100-200MB（JVM baseline）
 - **只用 GaussDB A 的用户完全不受影响** —— JVM 只在实际访问 T 时才启动
 
+**路径提示**（v0.10+）：`jdbc_jar_path` 支持相对路径（按运行 `datacompare`
+命令时的 CWD 解析）、`~` 展开、绝对路径三种写法。加载期即转成绝对路径存入
+内存，batch 模式跨 sub-task 不会受 CWD 变化影响。为最大可移植性推荐用
+绝对路径或 `~/.datacompare/xxx.jar`：
+
+```yaml
+jdbc_jar_path: /opt/gauss/gsjdbc4.jar         # 绝对路径（推荐）
+jdbc_jar_path: ~/.datacompare/gsjdbc4.jar     # $HOME 展开（推荐）
+jdbc_jar_path: ./drivers/gsjdbc4.jar          # 相对 CWD（谨慎，batch 里易踩坑）
+```
+
+若加载期发现文件不存在，会立即报 `ValidationError`（含解析后的绝对路径 +
+原值），方便定位配置问题。
+
 ```yaml
 # API - 无认证
 public_svc:
